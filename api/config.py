@@ -1,4 +1,4 @@
-# File này chỉ đọc danh sách kịch bản, không đọc session_config.json.
+# File này chỉ đọc danh sách kịch bản, không đọc session_config.json. - 🆕  API trả scenario cho UI
 import json
 from pathlib import Path
 from fastapi import APIRouter

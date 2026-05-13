@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.camera_manager import camera_manager
+from app.services.camera_service import camera_manager
 
 router = APIRouter()
 

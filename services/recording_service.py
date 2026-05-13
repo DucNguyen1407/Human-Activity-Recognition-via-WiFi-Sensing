@@ -1,17 +1,26 @@
+# CORE: điều phối toàn bộ session
+# Recording service là nơi:
+# - tạo session
+# - bật/tắt toàn bộ thu
+# - gọi CSI, video, audio
 import threading
 import time
 import asyncio
 import traceback
 
 from app.services.session_service import SessionService
-from app.services.scenario_service import ScenarioService
-from app.services.audio_cue_service import AudioCueService
+# from app.services.scenario_service import ScenarioService
+# from app.services.audio_cue_service import AudioCueService
+from app.services.scenario_audio_service import ScenarioService
+from app.services.scenario_audio_service import AudioCueService
 from app.adapters.webcam_adapter import WebcamAdapter
-from app.services.video_service import VideoService
+# from app.services.video_service import VideoService
+from app.services.camera_service import VideoService
 from app.services.csi_service import CsiService
 from app.core.time_utils import perf_now
 
-from app.services.camera_manager import camera_manager
+# from app.services.camera_manager import camera_manager
+from app.services.camera_service import camera_manager
 
 from app.api.ws import current_state, broadcast_state
 

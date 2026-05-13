@@ -1,25 +1,3 @@
-# from app.core.config import SESSIONS_DIR
-# from app.core.time_utils import new_session_id, utc_now_iso
-
-# class SessionService:
-#     def create_session(self):
-#         session_id = new_session_id()
-#         session_dir = SESSIONS_DIR / session_id
-
-#         (session_dir / "csi").mkdir(parents=True, exist_ok=True)
-#         (session_dir / "video").mkdir(parents=True, exist_ok=True)
-#         (session_dir / "labels").mkdir(parents=True, exist_ok=True)
-#         (session_dir / "logs").mkdir(parents=True, exist_ok=True)
-#         (session_dir / "sync").mkdir(parents=True, exist_ok=True)
-
-#         session_info = {
-#             "session_id": session_id,
-#             "start_time_utc": utc_now_iso(),
-#             "status": "running"
-#         }
-
-#         return session_info, session_dir
-
 
 # tạo service quản lý session, tạo thư mục lưu trữ dữ liệu cho mỗi session, lưu config session vào file JSON trong thư mục session đó
 # Kết quả session sẽ có tên dạng: ngoi_dung_ngoi_pos1_20260427_153000
