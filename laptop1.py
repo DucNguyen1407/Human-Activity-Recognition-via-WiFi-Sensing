@@ -1,26 +1,44 @@
 """
-Laptop 1 – TCP Server
-Cắm trực tiếp các module RS485-USB, lắng nghe lệnh từ Laptop 2.
+Laptop 1 - ESP32-Collection TCP Server
+=======================================
 
-Thay đổi so với phiên bản cũ:
-  • Kiến trúc đảo: Laptop 1 là SERVER, Laptop 2 là CLIENT.
-  • get_ports: trả cổng thực tế từ OS (chỉ các cổng RS485 đang cắm).
-  • Cấu trúc frame: Header(2) + Length(1) + Payload(23) + CSI(128) + Checksum(1) = 155 bytes.
-  • XOR checksum bao phủ raw[0:-1] (toàn frame trừ byte cuối).
+Kiến trúc:
+  ESP32 --UART--> laptop1.py --TCP JSON Lines--> laptop2.py
+
+Giao thức JSON Lines (mỗi message một dòng kết thúc '\\n'):
+
+  Nhận từ Management (laptop2):
+    {"type":"get_com_ports"}
+    {"type":"uart_control","action":"connect","device_id":"esp1","com":"COM3","baudrate":115200}
+    {"type":"uart_control","action":"disconnect","device_id":"esp1"}
+
+  Gửi về Management (laptop2):
+    {"type":"com_list","ports":["COM3","COM4"]}
+    {"type":"uart_status","device_id":"esp1","status":"connected","config":{...}}
+    {"type":"uart_status","device_id":"esp1","status":"disconnected"}
+    {"type":"uart_status","device_id":"esp1","status":"error","message":"..."}
+    {"type":"csi_data","device_id":"esp1","seq":123,...}
+
+Cấu trúc frame binary (155 bytes):
+  [0:2]    magic_bytes = 0xAA55  (little-endian: 0xAA, 0x55)
+  [2]      packet_length = 155
+  [3:26]   Payload Header: MAC(6) Seq(4) ts_us(8) RSSI(1) CH(1) AGC(1) FFT(1) NF(1)
+  [26:154] CSI Raw Data: 128 bytes, 64 cặp (Q,I) xen kẽ int8
+  [154]    XOR Checksum: XOR(raw[0:154])
 """
 
 import asyncio
 import json
 import logging
 import struct
-from dataclasses import asdict, dataclass
+from collections import deque
 from typing import Optional
 
 import serial.tools.list_ports
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [L1] %(levelname)s: %(message)s",
+    format="%(asctime)s [Collection] %(levelname)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -31,44 +49,34 @@ logger = logging.getLogger(__name__)
 TCP_HOST = "0.0.0.0"
 TCP_PORT = 8888
 
-# Baudrate hợp lệ – chỉ chấp nhận 2 giá trị này
-VALID_BAUDRATES = {460800, 921600}
-DEFAULT_BAUDRATE = 921600
+# Baudrate hợp lệ
+VALID_BAUDRATES = {115200, 460800, 921600}
+DEFAULT_BAUDRATE = 115200
+
+# ══════════════════════════════════════════════════════════
+# MAP MAC → device_id
+# Điền địa chỉ MAC thực tế của từng ESP32 vào đây.
+# Key: chuỗi MAC dạng "XX:XX:XX:XX:XX:XX" (chữ hoa)
+# Value: "esp1" | "esp2" | "esp3"
+# ══════════════════════════════════════════════════════════
+
+MAC_TO_DEVICE: dict[str, str] = {
+    "AA:BB:CC:DD:EE:01": "esp1",
+    "AA:BB:CC:DD:EE:02": "esp2",
+    "AA:BB:CC:DD:EE:03": "esp3",
+}
 
 # ══════════════════════════════════════════════════════════
 # CẤU TRÚC FRAME (155 bytes)
-#
-#  [0:2]   Header magic  = 0xAA55
-#  [2]     Length        = 155  (uint8, tổng số byte toàn frame)
-#  [3:26]  Payload Header: MAC(6) Seq(4) ts_us(8) RSSI(1) CH(1) AGC(1) FFT(1) NF(1)
-#  [26:154] CSI Raw Data : 128 bytes, 64 cặp (Q,I) xen kẽ int8
-#  [154]   XOR Checksum : XOR(raw[0:154])
 # ══════════════════════════════════════════════════════════
 
-HEADER_MAGIC       = b'\xAA\x55'
-TOTAL_FRAME_SIZE   = 155
+HEADER_MAGIC        = bytes([0xAA, 0x55])   # magic_bytes == 0xAA55
+TOTAL_FRAME_SIZE    = 155
 PAYLOAD_HEADER_FMT  = "<6sIQbBBBb"
 PAYLOAD_HEADER_SIZE = struct.calcsize(PAYLOAD_HEADER_FMT)  # 23 bytes
 CSI_DATA_SIZE       = 128
-PAYLOAD_OFFSET      = 3    # sau Header(2) + Length(1)
+PAYLOAD_OFFSET      = 3     # sau Header(2) + Length(1)
 CSI_OFFSET          = PAYLOAD_OFFSET + PAYLOAD_HEADER_SIZE  # = 26
-
-
-@dataclass
-class CSIPacket:
-    device_id:     str
-    port:          str
-    monitor_mac:   str
-    sequence:      int
-    timestamp_us:  int
-    rssi:          int
-    channel:       int
-    agc_gain:      int
-    fft_gain:      int
-    noise_floor:   int
-    i_array:       list
-    q_array:       list
-    n_subcarriers: int
 
 
 # ══════════════════════════════════════════════════════════
@@ -83,52 +91,67 @@ def calculate_xor_checksum(data: bytes) -> int:
     return result
 
 
-def parse_packet(raw: bytes, device_id: str, port: str) -> Optional[CSIPacket]:
+def parse_packet(raw: bytes, device_id: str) -> Optional[dict]:
     """
     Xác thực và parse một frame 155 bytes.
     Trả None nếu bất kỳ bước nào thất bại.
+    Trả dict JSON-ready nếu thành công.
     """
-    # 1. Kích thước và Header magic
-    if len(raw) != TOTAL_FRAME_SIZE or raw[:2] != HEADER_MAGIC:
+    # 1. Kích thước
+    if len(raw) != TOTAL_FRAME_SIZE:
         return None
 
-    # 2. Trường Length tại byte [2]
+    # 2. Check magic_bytes == 0x55AA
+    if raw[:2] != HEADER_MAGIC:
+        return None
+
+    # 3. Check packet_length == 155
     if raw[2] != TOTAL_FRAME_SIZE:
         return None
 
-    # 3. XOR checksum: tính trên raw[0:154], so với raw[154]
+    # 4. Check XOR checksum
     if calculate_xor_checksum(raw[:-1]) != raw[-1]:
         logger.warning("[%s] XOR checksum sai – gói bị nhiễu", device_id)
         return None
 
-    # 4. Unpack Payload Header
+    # 5. Unpack Payload Header
     try:
-        mac_b, seq, ts, rssi, ch, agc, fft, nf = struct.unpack_from(
+        mac_b, seq, ts_us, rssi, ch, agc, fft, nf = struct.unpack_from(
             PAYLOAD_HEADER_FMT, raw, PAYLOAD_OFFSET
         )
     except struct.error as e:
         logger.error("[%s] Lỗi unpack header: %s", device_id, e)
         return None
 
+    # 6. Lấy monitor_mac → map ra device_id nếu cần override
     mac_str = ":".join(f"{b:02X}" for b in mac_b)
+    mapped_id = MAC_TO_DEVICE.get(mac_str, device_id)
 
-    # 5. Unpack CSI raw data – 128 int8 xen kẽ [Q0,I0,Q1,I1,...]
+    # 7. Unpack CSI raw data – 128 int8 xen kẽ [Q0,I0,Q1,I1,...]
     csi_raw = struct.unpack_from(f"<{CSI_DATA_SIZE}b", raw, CSI_OFFSET)
-    q_array = [csi_raw[i]     for i in range(0, CSI_DATA_SIZE, 2)]
-    i_array = [csi_raw[i + 1] for i in range(0, CSI_DATA_SIZE, 2)]
+    # Flatten thành list 128 phần tử: [Q0, I0, Q1, I1, ...]
+    csi_list = list(csi_raw)
 
-    return CSIPacket(
-        device_id=device_id, port=port, monitor_mac=mac_str,
-        sequence=seq, timestamp_us=ts, rssi=rssi, channel=ch,
-        agc_gain=agc, fft_gain=fft, noise_floor=nf,
-        i_array=i_array, q_array=q_array, n_subcarriers=len(i_array),
-    )
+    return {
+        "type":           "csi_data",
+        "device_id":      mapped_id,
+        "seq":            seq,
+        "esp_timestamp_us": ts_us,
+        "radio": {
+            "rssi":        rssi,
+            "channel":     ch,
+            "agc_gain":    agc,
+            "fft_gain":    fft,
+            "noise_floor": nf,
+        },
+        "csi": csi_list,   # 128 phần tử = 64 cặp Q/I
+    }
 
 
 def find_frame(buf: bytearray):
     """
     Tìm frame hợp lệ trong buffer streaming.
-    Dùng Header magic + Length field để xác định ranh giới – không dùng Footer.
+    Dùng Header magic + Length field để xác định ranh giới.
     """
     while True:
         start = buf.find(HEADER_MAGIC)
@@ -155,92 +178,132 @@ def find_frame(buf: bytearray):
 
 class SerialCollector:
     """
-    Đọc CSI từ một cổng COM bất đồng bộ, đẩy vào out_queue dưới dạng JSON.
-    Thống kê: total (gói OK), error (lỗi parse/checksum), connected.
+    Đọc CSI từ một cổng COM bất đồng bộ.
+    Đẩy JSON dict vào out_queue để gửi TCP về Management.
     """
 
-    def __init__(self, device_id: str, port: str, baudrate: int,
+    def __init__(self, device_id: str, com: str, baudrate: int,
                  out_queue: asyncio.Queue):
         self.device_id = device_id
-        self.port      = port
+        self.com       = com
         self.baudrate  = baudrate
         self.out_queue = out_queue
         self.running   = False
-        self.stats     = {"total": 0, "error": 0, "connected": False}
+        self.stats     = {
+            "total": 0, "error": 0, "dropped": 0,
+            "connected": False, "pkt_rate": 0.0,
+        }
+        self._task: Optional[asyncio.Task] = None
+
+    # Số gói dùng để tính rate – tăng lên để ổn định hơn, giảm để nhạy hơn
+    RATE_WINDOW = 50
 
     async def run(self):
         import serial_asyncio
+        import time
         self.running = True
         buf = bytearray()
+        # Sliding window: lưu timestamp của RATE_WINDOW gói gần nhất
+        rate_ts: deque[float] = deque(maxlen=self.RATE_WINDOW)
+
         try:
             reader, _ = await serial_asyncio.open_serial_connection(
-                url=self.port, baudrate=self.baudrate
+                url=self.com, baudrate=self.baudrate
             )
             self.stats["connected"] = True
-            logger.info("[%s] Serial mở @ %d baud", self.port, self.baudrate)
+            logger.info("[%s] Serial mở %s @ %d baud",
+                        self.device_id, self.com, self.baudrate)
 
             while self.running:
                 chunk = await reader.read(4096)
                 if not chunk:
                     break
                 buf.extend(chunk)
+
                 while True:
                     frame, buf = find_frame(buf)
                     if frame is None:
                         break
-                    pkt = parse_packet(frame, self.device_id, self.port)
+                    pkt = parse_packet(frame, self.device_id)
                     if pkt:
                         self.stats["total"] += 1
+
+                        # ── Sliding-window packet rate ──────────────────
+                        # Ghi nhận thời điểm gói này đến
+                        rate_ts.append(time.monotonic())
+                        if len(rate_ts) >= 2:
+                            # Khoảng thời gian giữa gói cũ nhất và mới nhất
+                            span = rate_ts[-1] - rate_ts[0]
+                            if span > 0:
+                                # (N-1) khoảng / span giây = pkt/s thực
+                                self.stats["pkt_rate"] = round(
+                                    (len(rate_ts) - 1) / span, 1
+                                )
+                        # ────────────────────────────────────────────────
+
                         try:
-                            self.out_queue.put_nowait({"type": "csi_data",
-                                                       "payload": asdict(pkt)})
+                            self.out_queue.put_nowait(pkt)
                         except asyncio.QueueFull:
-                            pass
+                            self.stats["dropped"] += 1
                     else:
                         self.stats["error"] += 1
+
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error("[%s] Lỗi serial: %s", self.port, e)
+            logger.error("[%s] Lỗi serial %s: %s", self.device_id, self.com, e)
+            raise
         finally:
             self.running = False
             self.stats["connected"] = False
-            logger.info("[%s] Serial đã đóng", self.port)
+            self.stats["pkt_rate"] = 0.0
+            logger.info("[%s] Serial %s đã đóng", self.device_id, self.com)
 
     def stop(self):
         self.running = False
+        if self._task and not self._task.done():
+            self._task.cancel()
 
 
 # ══════════════════════════════════════════════════════════
-# TCP SERVER APP – NHẬN LỆNH TỪ LAPTOP 2
+# TCP SERVER APP – NHẬN LỆNH TỪ MANAGEMENT (LAPTOP 2)
 # ══════════════════════════════════════════════════════════
 
 class TCPServerApp:
     """
     Laptop 1 là TCP Server.
-    Laptop 2 kết nối vào, gửi lệnh JSON, nhận dữ liệu CSI + phản hồi.
+    Laptop 2 kết nối vào, gửi lệnh JSON Lines, nhận csi_data + status.
 
-    Luồng dữ liệu:
-      ESP32 → Serial → SerialCollector → tx_queue → send_data() → TCP → Laptop 2
-    Luồng lệnh:
-      Laptop 2 → TCP → process_command() → SerialCollector.run()/stop()
+    Giao thức nhận:
+      {"type":"get_com_ports"}
+      {"type":"uart_control","action":"connect","device_id":"esp1","com":"COM3","baudrate":115200}
+      {"type":"uart_control","action":"disconnect","device_id":"esp1"}
+
+    Giao thức gửi:
+      {"type":"com_list","ports":[...]}
+      {"type":"uart_status","device_id":"esp1","status":"connected","config":{...}}
+      {"type":"uart_status","device_id":"esp1","status":"disconnected"}
+      {"type":"uart_status","device_id":"esp1","status":"error","message":"..."}
+      {"type":"csi_data",...}
     """
 
     def __init__(self):
+        # device_id → SerialCollector
         self.collectors: dict[str, SerialCollector] = {}
         self.tasks:      dict[str, asyncio.Task]    = {}
+        # Queue gửi dữ liệu TCP về Management
         self.tx_queue    = asyncio.Queue(maxsize=10_000)
-        self.current_writer = None   # Writer của kết nối hiện tại
+        self.current_writer: Optional[asyncio.StreamWriter] = None
 
-    # ── Xử lý một kết nối từ Laptop 2 ────────────────────
+    # ── Kết nối từ Management ─────────────────────────────
 
     async def handle_client(self, reader: asyncio.StreamReader,
                             writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
-        logger.info("Laptop 2 kết nối từ %s", addr)
+        logger.info("Management kết nối từ %s", addr)
         self.current_writer = writer
 
-        # Task song song: gửi dữ liệu CSI lên TCP
+        # Task gửi dữ liệu CSI về TCP
         tx_task = asyncio.create_task(self._send_worker(writer))
 
         try:
@@ -249,101 +312,257 @@ class TCPServerApp:
                 if not line:
                     break
                 try:
-                    cmd_data = json.loads(line.decode().strip())
-                    await self._process_command(cmd_data, writer)
+                    msg = json.loads(line.decode().strip())
+                    await self._process_message(msg, writer)
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
-            logger.error("Lỗi kết nối client: %s", e)
+            logger.error("Lỗi kết nối Management: %s", e)
         finally:
             tx_task.cancel()
             self.current_writer = None
-            logger.info("Laptop 2 ngắt kết nối từ %s", addr)
+            logger.info("Management ngắt kết nối từ %s", addr)
             writer.close()
             await writer.wait_closed()
 
+    # ── Send worker (batch flush) ─────────────────────────
+
     async def _send_worker(self, writer: asyncio.StreamWriter):
-        """Lấy message từ tx_queue và gửi qua TCP."""
+        """Gom nhiều gói từ tx_queue rồi flush 1 lần – giảm syscall."""
+        MAX_BATCH = 32
         while True:
             try:
-                msg = await self.tx_queue.get()
-                writer.write(json.dumps(msg).encode() + b"\n")
+                msg   = await self.tx_queue.get()
+                batch = [json.dumps(msg, ensure_ascii=False).encode() + b"\n"]
+
+                for _ in range(MAX_BATCH - 1):
+                    try:
+                        msg = self.tx_queue.get_nowait()
+                        batch.append(json.dumps(msg, ensure_ascii=False).encode() + b"\n")
+                    except asyncio.QueueEmpty:
+                        break
+
+                writer.writelines(batch)
                 await writer.drain()
+
             except asyncio.CancelledError:
                 break
             except Exception:
                 break
 
-    # ── Xử lý lệnh ───────────────────────────────────────
+    # ── Xử lý lệnh từ Management ─────────────────────────
 
-    async def _process_command(self, cmd_data: dict,
+    async def _process_message(self, msg: dict,
                                 writer: asyncio.StreamWriter):
-        cmd    = cmd_data.get("cmd")
-        req_id = cmd_data.get("req_id")
-        res    = {"req_id": req_id, "type": "response", "status": "ok"}
+        msg_type = msg.get("type")
 
-        # get_ports: trả tất cả cổng serial đang hiện diện trên hệ thống.
-        # Frontend chỉ gọi sau khi người dùng cắm đủ 3 module RS485-USB.
-        if cmd == "get_ports":
-            ports = serial.tools.list_ports.comports()
-            res["data"] = [
-                {"port": p.device, "desc": p.description or ""}
-                for p in sorted(ports, key=lambda x: x.device)
-            ]
+        # File 01 – Management yêu cầu danh sách COM
+        if msg_type == "get_com_ports":
+            ports = [p.device for p in sorted(
+                serial.tools.list_ports.comports(),
+                key=lambda x: x.device
+            )]
+            resp = {"type": "com_list", "ports": ports}
+            writer.write(json.dumps(resp, ensure_ascii=False).encode() + b"\n")
+            await writer.drain()
+            logger.info("Trả danh sách COM: %s", ports)
 
-        # get_baudrates: trả 2 giá trị cố định + default
-        elif cmd == "get_baudrates":
-            res["data"] = {
-                "baudrates": sorted(VALID_BAUDRATES),
-                "default":   DEFAULT_BAUDRATE,
-            }
+        # File 03/06 – Management điều khiển UART
+        elif msg_type == "uart_control":
+            action    = msg.get("action")
+            device_id = msg.get("device_id", "")
 
-        # start: khởi động collector trên một cổng
-        elif cmd == "start":
-            port    = cmd_data.get("port", "")
-            baudrate = int(cmd_data.get("baudrate", DEFAULT_BAUDRATE))
+            # File 03 – connect
+            if action == "connect":
+                com      = msg.get("com", "")
+                baudrate = int(msg.get("baudrate", DEFAULT_BAUDRATE))
+                await self._do_connect(device_id, com, baudrate, writer)
 
-            if baudrate not in VALID_BAUDRATES:
-                res["status"] = "error"
-                res["msg"]    = f"Baudrate {baudrate} không hợp lệ. Chọn: {sorted(VALID_BAUDRATES)}"
-            elif port in self.collectors:
-                res["status"] = "error"
-                res["msg"]    = f"Cổng {port} đã có collector đang chạy"
+            # File 06 – disconnect
+            elif action == "disconnect":
+                await self._do_disconnect(device_id, writer)
+
             else:
-                dev_id = f"ESP32_{port.replace('/', '_')}"
-                col    = SerialCollector(dev_id, port, baudrate, self.tx_queue)
-                task   = asyncio.create_task(col.run(), name=f"col-{port}")
-                self.collectors[port] = col
-                self.tasks[port]      = task
-                res["msg"] = f"Đã khởi động {port} @ {baudrate} baud"
-                logger.info("start: %s @ %d", port, baudrate)
-
-        # stop: dừng collector của một cổng
-        elif cmd == "stop":
-            port = cmd_data.get("port", "")
-            if port not in self.collectors:
-                res["status"] = "error"
-                res["msg"]    = f"Cổng {port} không có collector đang chạy"
-            else:
-                col  = self.collectors.pop(port)
-                task = self.tasks.pop(port)
-                col.stop()
-                task.cancel()
-                res["msg"] = f"Đã dừng {port}"
-                logger.info("stop: %s", port)
-
-        # status: trả thống kê tất cả collector
-        elif cmd == "status":
-            res["data"] = {
-                p: c.stats for p, c in self.collectors.items()
-            }
+                logger.warning("uart_control action không hợp lệ: %s", action)
 
         else:
-            res["status"] = "error"
-            res["msg"]    = f"Lệnh không hợp lệ: '{cmd}'"
+            logger.warning("Loại message không hợp lệ: %s", msg_type)
 
-        writer.write(json.dumps(res).encode() + b"\n")
+    # ── Connect một ESP ───────────────────────────────────
+
+    async def _do_connect(self, device_id: str, com: str, baudrate: int,
+                          writer: asyncio.StreamWriter):
+        """File 04 – báo connected | File 08 – báo error."""
+
+        # Kiểm tra device đã connect chưa
+        if device_id in self.collectors:
+            err = {
+                "type": "uart_status", "device_id": device_id,
+                "status": "error",
+                "message": f"{device_id} đã kết nối tới {self.collectors[device_id].com}",
+            }
+            writer.write(json.dumps(err, ensure_ascii=False).encode() + b"\n")
+            await writer.drain()
+            return
+
+        if baudrate not in VALID_BAUDRATES:
+            err = {
+                "type": "uart_status", "device_id": device_id,
+                "status": "error",
+                "message": f"Baudrate {baudrate} không hợp lệ. Chọn: {sorted(VALID_BAUDRATES)}",
+            }
+            writer.write(json.dumps(err, ensure_ascii=False).encode() + b"\n")
+            await writer.drain()
+            return
+
+        col  = SerialCollector(device_id, com, baudrate, self.tx_queue)
+
+        async def _run_and_notify():
+            try:
+                # Thử mở serial – nếu lỗi sẽ raise ngay
+                import serial_asyncio
+                import time
+                buf = bytearray()
+                rate_count = 0
+                rate_t0 = time.monotonic()
+
+                reader, _ = await serial_asyncio.open_serial_connection(
+                    url=com, baudrate=baudrate
+                )
+                col.stats["connected"] = True
+                col.running = True
+
+                # File 04 – báo connect thành công
+                ok = {
+                    "type":      "uart_status",
+                    "device_id": device_id,
+                    "status":    "connected",
+                    "config":    {"com": com, "baudrate": baudrate},
+                }
+                if self.current_writer:
+                    self.current_writer.write(
+                        json.dumps(ok, ensure_ascii=False).encode() + b"\n"
+                    )
+                    await self.current_writer.drain()
+                logger.info("[%s] Kết nối %s @ %d baud", device_id, com, baudrate)
+
+                # Vòng đọc dữ liệu
+                while col.running:
+                    chunk = await reader.read(4096)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+
+                    while True:
+                        frame, buf = find_frame(buf)
+                        if frame is None:
+                            break
+                        pkt = parse_packet(frame, device_id)
+                        if pkt:
+                            col.stats["total"] += 1
+                            rate_count += 1
+                            now = time.monotonic()
+                            elapsed = now - rate_t0
+                            if elapsed >= 1.0:
+                                col.stats["pkt_rate"] = round(rate_count / elapsed, 1)
+                                rate_count = 0
+                                rate_t0 = now
+                            try:
+                                self.tx_queue.put_nowait(pkt)
+                            except asyncio.QueueFull:
+                                col.stats["dropped"] += 1
+                        else:
+                            col.stats["error"] += 1
+
+            except asyncio.CancelledError:
+                # Bị cancel bởi _do_disconnect → _do_disconnect sẽ tự gửi uart_status
+                return
+            except Exception as e:
+                logger.error("[%s] Lỗi serial %s: %s", device_id, com, e)
+                # File 08 – báo lỗi
+                err_msg = {
+                    "type":      "uart_status",
+                    "device_id": device_id,
+                    "status":    "error",
+                    "message":   f"Không mở được {com}: {e}",
+                }
+                if self.current_writer:
+                    try:
+                        self.current_writer.write(
+                            json.dumps(err_msg, ensure_ascii=False).encode() + b"\n"
+                        )
+                        await self.current_writer.drain()
+                    except Exception:
+                        pass
+                # Dọn dẹp
+                self.collectors.pop(device_id, None)
+                self.tasks.pop(device_id, None)
+                return
+            finally:
+                col.running = False
+                col.stats["connected"] = False
+                col.stats["pkt_rate"] = 0.0
+
+            # Vòng lặp kết thúc tự nhiên (chunk rỗng = ESP ngắt UART)
+            # → Không phải do _do_disconnect → tự báo disconnected
+            disc = {
+                "type":      "uart_status",
+                "device_id": device_id,
+                "status":    "disconnected",
+            }
+            if self.current_writer:
+                try:
+                    self.current_writer.write(
+                        json.dumps(disc, ensure_ascii=False).encode() + b"\n"
+                    )
+                    await self.current_writer.drain()
+                except Exception:
+                    pass
+            self.collectors.pop(device_id, None)
+            self.tasks.pop(device_id, None)
+            logger.info("[%s] Collector tự dừng (ESP ngắt UART)", device_id)
+
+        task = asyncio.create_task(_run_and_notify(), name=f"col-{device_id}")
+        col._task = task
+        self.collectors[device_id] = col
+        self.tasks[device_id]      = task
+
+    # ── Disconnect một ESP ────────────────────────────────
+
+    async def _do_disconnect(self, device_id: str,
+                              writer: asyncio.StreamWriter):
+        """File 06/07 – disconnect theo yêu cầu."""
+        col  = self.collectors.pop(device_id, None)
+        task = self.tasks.pop(device_id, None)
+
+        if col is None:
+            # Gửi trạng thái disconnected dù không tìm thấy
+            disc = {
+                "type":      "uart_status",
+                "device_id": device_id,
+                "status":    "disconnected",
+            }
+            writer.write(json.dumps(disc, ensure_ascii=False).encode() + b"\n")
+            await writer.drain()
+            return
+
+        col.stop()
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        # File 07 – báo disconnected
+        disc = {
+            "type":      "uart_status",
+            "device_id": device_id,
+            "status":    "disconnected",
+        }
+        writer.write(json.dumps(disc, ensure_ascii=False).encode() + b"\n")
         await writer.drain()
+        logger.info("[%s] Đã ngắt kết nối", device_id)
 
     # ── Entry point ───────────────────────────────────────
 
@@ -352,7 +571,7 @@ class TCPServerApp:
             self.handle_client, TCP_HOST, TCP_PORT
         )
         addr = server.sockets[0].getsockname()
-        logger.info("Laptop 1 (Server) lắng nghe tại %s:%d", *addr)
+        logger.info("Collection Server lắng nghe tại %s:%d", *addr)
         async with server:
             await server.serve_forever()
 
