@@ -8,14 +8,18 @@ from app.api import sessions
 from app.api import ws
 from app.api import config
 from app.api import camera
+from app.api import ethernet
+from app.api import uart
 from app.services.recording_service import set_main_loop
 
 app = FastAPI()
 
 app.include_router(sessions.router, prefix="/sessions")
-app.include_router(config.router, prefix="/config")
+app.include_router(config.router)
 app.include_router(ws.router)
 app.include_router(camera.router)
+app.include_router(ethernet.router)
+app.include_router(uart.router)
 
 app.mount("/static", StaticFiles(directory="app/ui/static"), name="static")
 

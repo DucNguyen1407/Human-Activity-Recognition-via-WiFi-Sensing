@@ -16,9 +16,6 @@ class SelectCameraRequest(BaseModel):
 
 class VideoControlRequest(BaseModel):
     enabled: bool
-    width: int = 640
-    height: int = 480
-    fps: int = 20
 
 
 @router.get("/cameras")
@@ -36,11 +33,8 @@ def select_camera(payload: SelectCameraRequest):
 @router.patch("/video")
 def control_video(payload: VideoControlRequest):
     if payload.enabled:
-        return camera_manager.start(
-            width=payload.width,
-            height=payload.height,
-            fps=payload.fps
-        )
+        # width/height/fps dùng giá trị mặc định trong camera_service.py
+        return camera_manager.start()
 
     return camera_manager.stop()
 

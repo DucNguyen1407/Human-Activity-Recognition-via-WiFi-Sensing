@@ -1,346 +1,936 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="vi">
 <head>
-    <title>IoT Recording UI</title>
-    <style>
-        body {
-            font-family: Arial;
-            background: #f5f5f5;
-            padding: 24px;
-        }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CSI IoT Collection Dashboard</title>
+  <style>
+    :root {
+      --bg: #071018;
+      --panel: #101c27;
+      --panel-2: #0c1721;
+      --line: #223244;
+      --text: #e8f2ff;
+      --muted: #91a4b8;
+      --green: #22c55e;
+      --blue: #38bdf8;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --orange: #f97316;
+      --input: #07131d;
+      --shadow: 0 12px 28px rgba(0, 0, 0, .35);
+      --radius: 12px;
+    }
 
-        .card {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
+    * { box-sizing: border-box; }
 
-        label {
-            display: block;
-            margin-top: 10px;
-        }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: radial-gradient(circle at top, #10243a 0, var(--bg) 42%);
+      color: var(--text);
+      min-height: 100vh;
+    }
 
-        input, select {
-            padding: 8px;
-            width: 260px;
-        }
+    .app {
+      width: min(1600px, 100%);
+      margin: 0 auto;
+      padding: 10px;
+    }
 
-        button {
-            padding: 10px 18px;
-            margin-top: 16px;
-            margin-right: 8px;
-            cursor: pointer;
-        }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
 
-        img {
-            width: 640px;
-            height: 480px;
-            background: black;
-            border-radius: 12px;
-        }
+    .title h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: .4px;
+    }
 
-        .running {
-            color: green;
-            font-weight: bold;
-        }
+    .title p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
 
-        .stopped {
-            color: red;
-            font-weight: bold;
-        }
-    </style>
+    .global-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 7px 10px;
+      background: rgba(255, 255, 255, .035);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 10px rgba(255, 255, 255, .15);
+    }
+
+    .dot.on { background: var(--green); box-shadow: 0 0 12px rgba(34, 197, 94, .8); }
+    .dot.warn { background: var(--yellow); box-shadow: 0 0 12px rgba(245, 158, 11, .75); }
+    .dot.off { background: var(--red); box-shadow: 0 0 12px rgba(239, 68, 68, .65); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px minmax(560px, 1fr) 340px;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.018));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, .035);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-header h2 {
+      margin: 0;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .7px;
+    }
+
+    .panel-body { padding: 10px; }
+    .stack { display: grid; gap: 9px; }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 10px;
+      padding: 9px;
+    }
+
+    .card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 7px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .mini { color: var(--muted); font-size: 11px; }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .45px;
+    }
+
+    input, select {
+      width: 100%;
+      height: 30px;
+      border: 1px solid #26384b;
+      border-radius: 8px;
+      background: var(--input);
+      color: var(--text);
+      padding: 0 9px;
+      outline: none;
+    }
+
+    input:focus, select:focus { border-color: var(--blue); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .row-auto { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    button {
+      border: 0;
+      border-radius: 9px;
+      height: 31px;
+      padding: 0 12px;
+      color: #05101a;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .12s ease, filter .12s ease, opacity .12s ease;
+      background: #d8e7f3;
+    }
+
+    button:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+    .btn-green { background: linear-gradient(180deg, #3be676, #18a94f); color: #04110a; }
+    .btn-blue { background: linear-gradient(180deg, #67d7ff, #0ea5e9); color: #03111a; }
+    .btn-red { background: linear-gradient(180deg, #ff7c7c, #ef4444); color: #210505; }
+    .btn-orange { background: linear-gradient(180deg, #ffc36b, #f97316); color: #1f0d00; }
+    .btn-dark { background: #172638; color: var(--text); border: 1px solid #2b4056; }
+    .btn-full { width: 100%; }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .camera-box {
+      display: grid;
+      grid-template-columns: 1fr 155px;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .preview {
+      min-height: 300px;
+      border: 1px solid #1f3245;
+      border-radius: 12px;
+      background: #020812;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: none;
+    }
+
+    .preview .placeholder {
+      color: #64748b;
+      text-align: center;
+      line-height: 1.5;
+      font-size: 13px;
+      padding: 20px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      padding: 10px;
+    }
+
+    .metric .value {
+      font-size: 20px;
+      font-weight: 800;
+      margin-top: 3px;
+    }
+
+    .rate-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .device-status-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .device-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      padding: 7px 9px;
+      font-size: 12px;
+    }
+
+    .logbox {
+      height: 170px;
+      border: 1px solid var(--line);
+      background: #040b12;
+      border-radius: 10px;
+      padding: 10px;
+      overflow: auto;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #b7c9dc;
+    }
+
+    .logbox .ok { color: #86efac; }
+    .logbox .err { color: #fca5a5; }
+    .logbox .info { color: #93c5fd; }
+    .logbox .warn { color: #fcd34d; }
+
+    .checkbox-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .checkbox-line input { width: 16px; height: 16px; }
+    .side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .footer-note { margin-top: 12px; color: #70859a; font-size: 12px; text-align: center; }
+
+
+
+    .compact-rate {
+      display: grid;
+      gap: 6px;
+    }
+
+    .rate-row, .asus-row {
+      display: grid;
+      grid-template-columns: 70px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel-2);
+      padding: 7px 9px;
+      font-size: 12px;
+    }
+
+    .rate-value-small {
+      font-size: 18px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .asus-row { grid-template-columns: 58px 1fr 68px; }
+
+    .right-compact-note {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    @media (max-height: 900px) {
+      .app { padding: 8px; }
+      .topbar { margin-bottom: 6px; }
+      .title h1 { font-size: 19px; }
+      .title p { display: none; }
+      .panel-header { padding: 7px 10px; }
+      .panel-body { padding: 8px; }
+      .stack { gap: 7px; }
+      .card { padding: 8px; }
+      input, select { height: 28px; }
+      button { height: 29px; }
+      .preview { min-height: 280px; }
+      .logbox { height: 155px; }
+      .badge { padding: 5px 8px; }
+    }
+
+    @media (max-width: 1150px) {
+      .layout { grid-template-columns: 1fr; }
+      .camera-box { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
 </head>
-
 <body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title">
+        <h1>CSI IoT Collection Dashboard</h1>
+        <p>Quản lý ESP/UART, ASUS, Camera, Session và rate realtime.</p>
+      </div>
+      <div class="global-status">
+        <span class="badge"><span id="wsDot" class="dot off"></span>WebSocket: <b id="wsText">OFF</b></span>
+        <span class="badge"><span id="sessionDot" class="dot off"></span>Session: <b id="sessionText">IDLE</b></span>
+        <span class="badge"><span id="espTcpDot" class="dot off"></span>ESP TCP: <b id="espTcpText">OFF</b></span>
+        <span class="badge"><span id="asusTcpDot" class="dot off"></span>ASUS TCP: <b id="asusTcpText">OFF</b></span>
+      </div>
+    </div>
 
-<h1>IoT Laptop Recording UI</h1>
+    <div class="layout">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>UART / ESP32</h2>
+          <button class="btn-dark" onclick="refreshComPorts()">Kết nối / Refresh COM</button>
+        </div>
+        <div class="panel-body stack">
+          <div class="mini">COM chỉ hiện sau khi TCP ESP32-Collection đã kết nối.</div>
+          <div id="espCards" class="stack"></div>
+          <div class="card">
+            <div class="card-title"><span>Rate ESP</span><span class="mini">packet/s</span></div>
+            <div class="compact-rate">
+              <div class="rate-row"><b>ESP1</b><span class="mini">rate</span><div id="esp1Rate" class="rate-value-small">0 Hz</div></div>
+              <div class="rate-row"><b>ESP2</b><span class="mini">rate</span><div id="esp2Rate" class="rate-value-small">0 Hz</div></div>
+              <div class="rate-row"><b>ESP3</b><span class="mini">rate</span><div id="esp3Rate" class="rate-value-small">0 Hz</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-<div class="card">
-    <h2>Config</h2>
+      <main class="stack">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Quản lý Camera</h2>
+            <div class="row-auto">
+              <button class="btn-dark" onclick="loadCameras()">Tải camera</button>
+              <button class="btn-green" onclick="startPreview()">Bật preview</button>
+              <button class="btn-red" onclick="stopPreview()">Tắt preview</button>
+            </div>
+          </div>
+          <div class="panel-body camera-box">
+            <div class="preview">
+              <img id="videoFeed" alt="Live camera" />
+              <div id="previewText" class="placeholder">Camera preview sẽ hiển thị ở đây<br/>Endpoint: /video_feed</div>
+            </div>
+            <div class="stack">
+              <div>
+                <label>Chọn Camera</label>
+                <select id="cameraSelect"></select>
+              </div>
+              <label class="checkbox-line"><input id="cameraEnabled" type="checkbox" checked /> Ghi video trong session</label>
+              <div class="card">
+                <div class="mini">Thông số camera dùng mặc định trong code.</div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-    <label>Scenario</label>
-    <select id="scenario"></select>
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Log realtime</h2>
+            <span class="mini">Cập nhật qua WebSocket</span>
+          </div>
+          <div class="panel-body">
+            <div id="log" class="logbox"></div>
+          </div>
+        </section>
+      </main>
 
-    <label>Position ID</label>
-    <input id="position_id" type="number" value="2">
+      <aside class="stack">
+        <section class="panel">
+          <div class="panel-header"><h2>ASUS</h2></div>
+          <div class="panel-body stack">
+            <div class="row">
+              <div>
+                <label>Host</label>
+                <input id="ethHost" value="127.0.0.1" />
+              </div>
+              <div>
+                <label>Port</label>
+                <input id="ethPort" type="number" value="9100" />
+              </div>
+            </div>
+            <button class="btn-blue btn-full" onclick="saveEthernetConfig()">Lưu TCP ASUS</button>
+            <div class="card">
+              <div class="card-title"><span>Trạng thái & Rate ASUS</span><span class="mini">packet/s</span></div>
+              <div class="compact-rate">
+                <div class="asus-row">
+                  <b>ASUS1</b>
+                  <span class="badge"><span id="asus1Dot" class="dot off"></span><b id="asus1Status">NO_DATA</b></span>
+                  <div id="asus1Rate" class="rate-value-small">0 Hz</div>
+                </div>
+                <div class="asus-row">
+                  <b>ASUS2</b>
+                  <span class="badge"><span id="asus2Dot" class="dot off"></span><b id="asus2Status">NO_DATA</b></span>
+                  <div id="asus2Rate" class="rate-value-small">0 Hz</div>
+                </div>
+                <div class="asus-row">
+                  <b>ASUS3</b>
+                  <span class="badge"><span id="asus3Dot" class="dot off"></span><b id="asus3Status">NO_DATA</b></span>
+                  <div id="asus3Rate" class="rate-value-small">0 Hz</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-    <label>Repeat Count</label>
-    <input id="repeat_count" type="number" value="1">
+        <section class="panel">
+          <div class="panel-header"><h2>Dữ liệu / Session</h2></div>
+          <div class="panel-body stack">
+            <div class="row">
+              <div>
+                <label>Phòng</label>
+                <input id="roomId" type="number" value="1" min="1" />
+              </div>
+              <div>
+                <label>Setup</label>
+                <input id="setupId" type="number" value="1" min="1" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Phiên</label>
+                <input id="sessionNo" type="number" value="1" min="1" />
+              </div>
+              <div>
+                <label>Người</label>
+                <input id="personId" type="number" value="1" min="1" />
+              </div>
+            </div>
+            <div>
+              <label>Scenario</label>
+              <select id="scenarioSelect"></select>
+            </div>
+            <div class="row">
+              <div>
+                <label>Vị trí</label>
+                <input id="positionId" type="number" value="1" min="1" />
+              </div>
+              <div>
+                <label>Số lần lặp</label>
+                <input id="repeatCount" type="number" value="1" min="1" />
+              </div>
+            </div>
+            <div class="side-actions">
+              <button class="btn-green" onclick="startSession()">START SESSION</button>
+              <button class="btn-orange" onclick="stopSession()">STOP SESSION</button>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
 
-    <h3>Camera Config</h3>
+  </div>
 
-    <label>
-        <input id="camera_enabled" type="checkbox" checked>
-        Enable Camera Recording
-    </label>
+  <script>
+    const devices = ["esp1", "esp2", "esp3"];
+    const asusDevices = ["asus1", "asus2", "asus3"];
+    let comPorts = [];
+    let lastEspTcpConnected = null;
+    let uartState = null;
+    let ethernetState = null;
+    let ws = null;
+    let lastWsMessage = null;
 
-    <label>Camera Index</label>
-    <input id="camera_index" type="number" value="0">
+    function $(id) { return document.getElementById(id); }
 
-    <label>FPS</label>
-    <input id="fps" type="number" value="20">
-
-    <label>Width</label>
-    <input id="width" type="number" value="640">
-
-    <label>Height</label>
-    <input id="height" type="number" value="480">
-
-    <h3>UART</h3>
-
-    <label>
-        <input id="uart_enabled" type="checkbox" checked>
-        Enable UART
-    </label>
-
-    <label>UART Port</label>
-    <input id="uart_port" type="text" value="COM3">
-
-    <label>Baudrate</label>
-    <input id="baudrate" type="number" value="115200">
-
-    <h3>Ethernet</h3>
-
-    <label>
-        <input id="eth_enabled" type="checkbox" checked>
-        Enable Ethernet
-    </label>
-
-    <label>Host</label>
-    <input id="eth_host" type="text" value="0.0.0.0">
-
-    <label>Port</label>
-    <input id="eth_port" type="number" value="9000">
-
-    <label>Protocol</label>
-    <select id="eth_protocol">
-        <option value="udp">udp</option>
-        <option value="tcp">tcp</option>
-    </select>
-</div>
-
-<div class="card">
-    <h2>Camera Preview Control</h2>
-
-    <button onclick="loadCameras()">Load Cameras</button>
-
-    <label>Available Cameras</label>
-    <select id="available_cameras"></select>
-
-    <br>
-
-    <button onclick="selectCamera()">Select Camera</button>
-    <button onclick="startPreview()">Start Preview</button>
-    <button onclick="stopPreview()">Stop Preview</button>
-</div>
-
-<div class="card">
-    <h2>Control</h2>
-    <button onclick="startSession()">Start Session</button>
-    <button onclick="stopSession()">Stop Session</button>
-</div>
-
-<div class="card">
-    <h2>Status</h2>
-    <p>Running: <span id="running" class="stopped">false</span></p>
-    <p>Session ID: <span id="session_id">-</span></p>
-    <p>Session Dir: <span id="session_dir">-</span></p>
-    <p>Scenario: <span id="status_scenario">-</span></p>
-    <p>Position ID: <span id="status_position">-</span></p>
-    <p>Repeat Count: <span id="status_repeat">-</span></p>
-    <p>Current Action: <span id="current_action">-</span></p>
-    <p>Camera Ready: <span id="camera_ready">false</span></p>
-    <p>CSI Ready: <span id="csi_ready">false</span></p>
-    <p>Message: <span id="message">Idle</span></p>
-    <p>Error: <span id="error">-</span></p>
-</div>
-
-<div class="card">
-    <h2>Live Camera Preview</h2>
-    <img src="/video_feed">
-</div>
-
-<script>
-async function loadScenarios() {
-    const res = await fetch("/config/scenarios");
-    const data = await res.json();
-
-    const select = document.getElementById("scenario");
-    select.innerHTML = "";
-
-    data.scenarios.forEach((item, index) => {
-        const option = document.createElement("option");
-
-        option.value = item.name;
-        option.innerText = item.label || item.name;
-
-        if (index === 0) {
-            option.selected = true;
-        }
-
-        select.appendChild(option);
-    });
-}
-
-async function loadCameras() {
-    const res = await fetch("/cameras");
-    const data = await res.json();
-
-    const select = document.getElementById("available_cameras");
-    select.innerHTML = "";
-
-    data.cameras.forEach(index => {
-        const option = document.createElement("option");
-        option.value = index;
-        option.innerText = "Camera " + index;
-        select.appendChild(option);
-    });
-
-    if (data.cameras.length === 0) {
-        alert("Không tìm thấy camera");
-    }
-}
-
-async function selectCamera() {
-    const camIndex = Number(document.getElementById("available_cameras").value);
-
-    await fetch("/camera/select", {
-        method: "PATCH",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            cam_index: camIndex
-        })
-    });
-
-    document.getElementById("camera_index").value = camIndex;
-}
-
-async function startPreview() {
-    const width = Number(document.getElementById("width").value);
-    const height = Number(document.getElementById("height").value);
-    const fps = Number(document.getElementById("fps").value);
-
-    await fetch("/video", {
-        method: "PATCH",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            enabled: true,
-            width: width,
-            height: height,
-            fps: fps
-        })
-    });
-}
-
-async function stopPreview() {
-    await fetch("/video", {
-        method: "PATCH",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            enabled: false
-        })
-    });
-}
-
-function buildConfigFromUI() {
-    const scenario = document.getElementById("scenario").value;
-
-    if (!scenario) {
-        alert("Chưa chọn scenario");
-        throw new Error("Missing scenario");
+    function nowText() {
+      return new Date().toLocaleTimeString("vi-VN", { hour12: false });
     }
 
-    return {
-        scenario: scenario,
-        repeat_count: Number(document.getElementById("repeat_count").value),
-        position_id: Number(document.getElementById("position_id").value),
-        devices: {
-            camera: {
-                enabled: document.getElementById("camera_enabled").checked,
-                camera_index: Number(document.getElementById("camera_index").value),
-                fps: Number(document.getElementById("fps").value),
-                width: Number(document.getElementById("width").value),
-                height: Number(document.getElementById("height").value)
-            },
-            uart: {
-                enabled: document.getElementById("uart_enabled").checked,
-                port: document.getElementById("uart_port").value,
-                baudrate: Number(document.getElementById("baudrate").value)
-            },
-            ethernet: {
-                enabled: document.getElementById("eth_enabled").checked,
-                host: document.getElementById("eth_host").value,
-                port: Number(document.getElementById("eth_port").value),
-                protocol: document.getElementById("eth_protocol").value
-            }
+    function log(message, type = "info") {
+      const box = $("log");
+      const line = document.createElement("div");
+      line.className = type;
+      line.textContent = `[${nowText()}] ${message}`;
+      box.prepend(line);
+      while (box.children.length > 120) box.removeChild(box.lastChild);
+    }
+
+    function setDot(dotId, textId, on, text, warn = false) {
+      const dot = $(dotId);
+      dot.className = `dot ${on ? "on" : warn ? "warn" : "off"}`;
+      $(textId).textContent = text;
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        ...options,
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+      if (!res.ok) throw new Error(data.detail || data.message || `${res.status} ${res.statusText}`);
+      return data;
+    }
+
+    async function apiWithFallback(paths, options = {}) {
+      let lastError;
+      for (const path of paths) {
+        try { return await api(path, options); }
+        catch (err) { lastError = err; }
+      }
+      throw lastError;
+    }
+
+    function renderEspCards() {
+      const container = $("espCards");
+      container.innerHTML = "";
+      devices.forEach((id, idx) => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <div class="card-title">
+            <span>UART ${idx + 1} / ${id.toUpperCase()}</span>
+            <span class="badge"><span id="${id}Dot" class="dot off"></span><b id="${id}Status">NOT_CONNECTED</b></span>
+          </div>
+          <div class="row">
+            <div>
+              <label>Port</label>
+              <select id="${id}Port"></select>
+            </div>
+            <div>
+              <label>Baudrate</label>
+              <select id="${id}Baud">
+                <option value="115200">115200</option>
+                <option value="921600">921600</option>
+                <option value="1500000">1500000</option>
+              </select>
+            </div>
+          </div>
+          <div style="height:8px"></div>
+          <div class="side-actions">
+            <button id="${id}ConnectBtn" class="btn-green" onclick="connectEsp('${id}')">Kết nối</button>
+            <button id="${id}DisconnectBtn" class="btn-red" onclick="disconnectEsp('${id}')">Ngắt</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+      renderPortOptions();
+    }
+
+    function setEspControlsEnabled(enabled) {
+      devices.forEach((id) => {
+        const portSelect = $(`${id}Port`);
+        const baudSelect = $(`${id}Baud`);
+        const connectBtn = $(`${id}ConnectBtn`);
+        const disconnectBtn = $(`${id}DisconnectBtn`);
+
+        if (portSelect) portSelect.disabled = !enabled;
+        if (baudSelect) baudSelect.disabled = !enabled;
+        if (connectBtn) connectBtn.disabled = !enabled;
+        if (disconnectBtn) disconnectBtn.disabled = !enabled;
+      });
+    }
+
+    function renderPortOptions() {
+      devices.forEach((id) => {
+        const select = $(`${id}Port`);
+        if (!select) return;
+
+        const current = select.value;
+        select.innerHTML = "";
+
+        if (!comPorts.length) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "Chưa có COM";
+          select.appendChild(opt);
+          select.value = "";
+          return;
         }
-    };
-}
 
-async function startSession() {
-    const config = buildConfigFromUI();
+        comPorts.forEach((port) => {
+          const opt = document.createElement("option");
+          opt.value = port;
+          opt.textContent = port;
+          select.appendChild(opt);
+        });
 
-    const res = await fetch("/sessions/start", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
+        if (comPorts.includes(current)) select.value = current;
+      });
+    }
+
+    function normalizePorts(data) {
+      return data.ports || data.available_ports || [];
+    }
+
+    async function loadComStatus() {
+      try {
+        const data = await api("/com");
+        uartState = data;
+        const connected = !!data.collection_connected;
+        comPorts = connected ? normalizePorts(data) : [];
+        renderPortOptions();
+        setDot("espTcpDot", "espTcpText", connected, connected ? "ON" : "OFF");
+        setEspControlsEnabled(connected && comPorts.length > 0);
+
+        if (lastEspTcpConnected !== null && lastEspTcpConnected !== connected) {
+          log(connected ? "ESP32-Collection đã kết nối TCP" : "ESP32-Collection đã ngắt TCP", connected ? "ok" : "warn");
+        }
+        lastEspTcpConnected = connected;
+      } catch (err) {
+        uartState = null;
+        comPorts = [];
+        renderPortOptions();
+        setEspControlsEnabled(false);
+        setDot("espTcpDot", "espTcpText", false, "OFF");
+      }
+    }
+
+    function updateUartUI(data) {
+      const hasTcpInfo = data.queue !== undefined || data.collection_connected !== undefined;
+      if (hasTcpInfo) {
+        const connected = !!data.queue?.connected || !!data.collection_connected;
+        setDot("espTcpDot", "espTcpText", connected, connected ? "ON" : "OFF");
+        setEspControlsEnabled(connected && comPorts.length > 0);
+      }
+
+      const devs = data.devices || data.uart || data || {};
+      devices.forEach((id) => {
+        const d = devs[id] || {};
+        const status = String(d.status || "DISCONNECTED").toUpperCase();
+        const isOn = !!d.connected || status === "CONNECTED" || status === "RECEIVING";
+        const isWarn = status === "CONNECTING" || status === "ERROR";
+        const label = status === "DISCONNECTED" ? "NOT_CONNECTED" : status;
+        setDot(`${id}Dot`, `${id}Status`, isOn, label, isWarn);
+        $(`${id}Rate`).textContent = `${Number(d.packet_rate || 0).toFixed(0)} Hz`;
+      });
+    }
+
+    async function refreshComPorts() {
+      try {
+        await api("/com/control", {
+          method: "POST",
+          body: JSON.stringify({ action: "refresh_com_ports" }),
+        });
+        log("Đã yêu cầu ESP32-Collection gửi danh sách COM", "ok");
+      } catch (err) {
+        log(`Chưa lấy được COM từ ESP32-Collection: ${err.message}`, "warn");
+      }
+      await loadComStatus();
+    }
+
+    async function connectEsp(deviceId) {
+      const port = $(`${deviceId}Port`).value;
+      const baud = Number($(`${deviceId}Baud`).value);
+
+      if (!port) {
+        log(`Chưa có COM từ ESP32-Collection cho ${deviceId}`, "warn");
+        return;
+      }
+
+      const payload = {
+        action: "connect",
+        uartId: deviceId,
+        port,
+        baudRate: baud,
+      };
+      try {
+        await api("/com/control", { method: "POST", body: JSON.stringify(payload) });
+        log(`Đã kết nối ${deviceId} -> ${port}`, "ok");
+      } catch (err) {
+        log(`Lỗi kết nối ${deviceId}: ${err.message}`, "err");
+      }
+      await loadComStatus();
+    }
+
+    async function disconnectEsp(deviceId) {
+      const payload = { action: "disconnect", uartId: deviceId };
+      try {
+        await api("/com/control", { method: "POST", body: JSON.stringify(payload) });
+        log(`Đã ngắt ${deviceId}`, "ok");
+      } catch (err) {
+        log(`Lỗi ngắt ${deviceId}: ${err.message}`, "err");
+      }
+      await loadComStatus();
+    }
+
+    function updateEthernetUI(data) {
+      // ASUS status/rate chỉ lấy từ WebSocket. Không cập nhật Host/Port từ backend để tránh ghi đè input người dùng.
+      const devs = data.devices || data;
+      asusDevices.forEach((id) => {
+        const d = devs[id] || {};
+        const rate = Number(d.packet_rate || 0);
+        const status = String(d.status || (rate > 0 ? "RECEIVING" : "NO_DATA")).toUpperCase();
+        const active = status === "RECEIVING" || status === "ACTIVE" || rate > 0;
+        const waiting = status === "WAITING";
+        $(`${id}Rate`).textContent = `${rate.toFixed(0)} Hz`;
+        setDot(`${id}Dot`, `${id}Status`, active, active ? "RECEIVING" : waiting ? "WAITING" : "NO_DATA", waiting);
+      });
+    }
+
+    async function saveEthernetConfig() {
+      const payload = {
+        action: "configure_queue",
+        host: $("ethHost").value.trim(),
+        port: Number($("ethPort").value),
+      };
+      try {
+        await api("/ethernet/control", { method: "POST", body: JSON.stringify(payload) });
+        log(`Đã gửi cấu hình TCP ASUS: ${payload.host}:${payload.port}`, "ok");
+      } catch (err) {
+        log(`Lỗi lưu ASUS: ${err.message}`, "err");
+      }
+    }
+
+    async function loadCameras() {
+      try {
+        const data = await api("/cameras");
+        const cams = data.cameras && data.cameras.length ? data.cameras : [0];
+        $("cameraSelect").innerHTML = cams.map(c => `<option value="${c}">Camera ${c}</option>`).join("");
+      } catch (err) {
+        $("cameraSelect").innerHTML = `<option value="0">Camera 0</option>`;
+        log(`Không lấy được camera, dùng Camera 0: ${err.message}`, "warn");
+      }
+    }
+
+    async function startPreview() {
+      const camIndex = Number($("cameraSelect").value || 0);
+      try {
+        await api("/camera/select", { method: "PATCH", body: JSON.stringify({ cam_index: camIndex }) });
+        await api("/video", { method: "PATCH", body: JSON.stringify({ enabled: true }) });
+        $("videoFeed").src = `/video_feed?ts=${Date.now()}`;
+        $("videoFeed").style.display = "block";
+        $("previewText").style.display = "none";
+        log("Đã bật preview camera", "ok");
+      } catch (err) {
+        log(`Lỗi bật camera: ${err.message}`, "err");
+      }
+    }
+
+    async function stopPreview() {
+      try {
+        await api("/video", { method: "PATCH", body: JSON.stringify({ enabled: false }) });
+      } catch (err) {
+        log(`Lỗi tắt preview: ${err.message}`, "warn");
+      }
+      $("videoFeed").removeAttribute("src");
+      $("videoFeed").style.display = "none";
+      $("previewText").style.display = "block";
+      log("Đã tắt preview camera", "ok");
+    }
+
+    async function loadScenarios() {
+      const select = $("scenarioSelect");
+      select.innerHTML = `<option value="">Đang tải kịch bản...</option>`;
+
+      try {
+        const data = await api("/scenarios");
+        const scenarios = Array.isArray(data.scenarios) ? data.scenarios : [];
+
+        if (!scenarios.length) {
+          select.innerHTML = `<option value="">Không có kịch bản</option>`;
+          log("Backend trả về danh sách kịch bản rỗng", "warn");
+          return;
+        }
+
+        select.innerHTML = scenarios
+          .map((name) => `<option value="${name}">${name}</option>`)
+          .join("");
+        log("Đã tải kịch bản từ backend", "ok");
+      } catch (err) {
+        select.innerHTML = `<option value="">Không tải được kịch bản</option>`;
+        log(`Không lấy được kịch bản từ backend: ${err.message}`, "err");
+      }
+    }
+
+    async function startSession() {
+      const scenario = $("scenarioSelect").value;
+      if (!scenario) {
+        log("Chưa có kịch bản hợp lệ. Hãy kiểm tra GET /scenarios.", "warn");
+        return;
+      }
+
+      const cfg = {
+        room_id: Number($("roomId").value),
+        setup_id: Number($("setupId").value),
+        session_no: Number($("sessionNo").value),
+        person_id: Number($("personId").value),
+        position_id: Number($("positionId").value),
+        repeat_count: Number($("repeatCount").value),
+        scenario,
+        capture: {
+          camera: $("cameraEnabled").checked,
         },
-        body: JSON.stringify(config)
-    });
+      };
 
-    const data = await res.json();
-    console.log(data);
-}
+      try {
+        await apiWithFallback(["/sessions/start", "/start"], { method: "POST", body: JSON.stringify(cfg) });
+        setDot("sessionDot", "sessionText", true, "RUNNING");
+        log("Đã START SESSION", "ok");
+      } catch (err) {
+        log(`Lỗi START SESSION: ${err.message}`, "err");
+      }
+    }
 
-async function stopSession() {
-    const res = await fetch("/sessions/stop", {
-        method: "POST"
-    });
+    async function stopSession() {
+      try {
+        await apiWithFallback(["/sessions/stop", "/stop"], { method: "POST", body: JSON.stringify({}) });
+        setDot("sessionDot", "sessionText", false, "STOPPING", true);
+        log("Đã gửi STOP SESSION", "ok");
+      } catch (err) {
+        log(`Lỗi STOP SESSION: ${err.message}`, "err");
+      }
+    }
 
-    const data = await res.json();
-    console.log(data);
-}
+    function updateAsusTcpUI(connected) {
+      setDot("asusTcpDot", "asusTcpText", connected, connected ? "ON" : "OFF");
+    }
 
-function connectWebSocket() {
-    const protocol = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${protocol}://${location.host}/ws/status`);
+    function applyRealtimeState(state) {
+      if (state.esp) {
+        updateUartUI({ devices: state.esp });
+      }
 
-    ws.onmessage = function(event) {
-        const data = JSON.parse(event.data);
+      if (state.asus) {
+        updateEthernetUI(state.asus);
+      }
 
-        const runningEl = document.getElementById("running");
+      if (state.asus_tcp) {
+        updateAsusTcpUI(!!state.asus_tcp.connected);
+      }
+    }
 
-        runningEl.innerText = data.running;
-        runningEl.className = data.running ? "running" : "stopped";
+    function startWebSocket() {
+      try {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        ws = new WebSocket(`${proto}://${location.host}/ws/status`);
+        ws.onopen = () => {
+          setDot("wsDot", "wsText", true, "ON");
+          log("WebSocket connected", "ok");
+        };
+        ws.onmessage = (event) => {
+          try {
+            const state = JSON.parse(event.data);
+            applyRealtimeState(state);
+          } catch (err) {
+            log("WebSocket message không hợp lệ", "warn");
+          }
+        };
+        ws.onclose = () => {
+          setDot("wsDot", "wsText", false, "OFF");
+          log("WebSocket disconnected, tự kết nối lại sau 3s", "warn");
+          setTimeout(startWebSocket, 3000);
+        };
+        ws.onerror = () => {
+          setDot("wsDot", "wsText", false, "ERROR", true);
+        };
+      } catch (err) {
+        log(`Không mở được WebSocket: ${err.message}`, "err");
+      }
+    }
 
-        document.getElementById("session_id").innerText = data.session_id || "-";
-        document.getElementById("session_dir").innerText = data.session_dir || "-";
-        document.getElementById("status_scenario").innerText = data.scenario || "-";
-        document.getElementById("status_position").innerText = data.position_id ?? "-";
-        document.getElementById("status_repeat").innerText = data.repeat_count ?? "-";
-        document.getElementById("current_action").innerText = data.current_action || "-";
-        document.getElementById("camera_ready").innerText = data.camera_ready;
-        document.getElementById("csi_ready").innerText = data.csi_ready;
-        document.getElementById("message").innerText = data.message || "-";
-        document.getElementById("error").innerText = data.error || "-";
-    };
+    async function loadAll() {
+      await Promise.allSettled([loadComStatus(), loadCameras(), loadScenarios()]);
+    }
 
-    ws.onclose = function() {
-        setTimeout(connectWebSocket, 1000);
-    };
-}
-
-loadScenarios();
-loadCameras();
-connectWebSocket();
-</script>
-
+    renderEspCards();
+    setEspControlsEnabled(false);
+    loadAll();
+    startWebSocket();
+  </script>
 </body>
 </html>

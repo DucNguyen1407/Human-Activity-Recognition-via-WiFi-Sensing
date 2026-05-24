@@ -1,6 +1,10 @@
-# File này chỉ đọc danh sách kịch bản, không đọc session_config.json. - 🆕  API trả scenario cho UI
+# app/api/config.py
+# API trả danh sách kịch bản cho UI.
+# Chỉ trả danh sách tên scenario, không dùng label.
+
 import json
 from pathlib import Path
+
 from fastapi import APIRouter
 
 router = APIRouter()
@@ -13,13 +17,7 @@ def get_scenarios():
     with open(SCENARIO_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    scenarios = []
-
-    for item in data:
-        scenarios.append({
-            "name": item["scenario"],
-            "label": item["scenario"]
-        })
+    scenarios = [item["scenario"] for item in data]
 
     return {
         "scenarios": scenarios

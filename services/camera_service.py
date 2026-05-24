@@ -10,22 +10,50 @@ import time
 import cv2
 
 from app.adapters.webcam_adapter import WebcamAdapter
-from app.core.time_utils import utc_now_iso, perf_now
+from app.core.time_utils import unix_now_us, perf_now
+from app.core.config import CAMERA_CONFIG
 
 
 class VideoService:
+    # def __init__(
+    #     self,
+    #     session_dir: Path,
+    #     fps: int = 20,
+    #     width: int = 640,
+    #     height: int = 480,
+    #     session_t0: float | None = None
+    # ):
+    #     self.session_dir = session_dir
+    #     self.fps = fps
+    #     self.width = width
+    #     self.height = height
+
+    #     self.video_path = session_dir / "video.mp4"
+    #     self.index_path = session_dir / "video_index.csv"
+
+    #     self.writer = None
+    #     self.frame_no = 0
+    #     self.session_t0 = session_t0 if session_t0 is not None else perf_now()
+
+    #     if not self.index_path.exists():
+    #         self.index_path.write_text(
+    #             "frame_no,timestamp_unix_us,elapsed_us\n",
+    #             encoding="utf-8"
+    #         )
     def __init__(
         self,
         session_dir: Path,
-        fps: int = 20,
-        width: int = 640,
-        height: int = 480,
+        fps: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
         session_t0: float | None = None
     ):
         self.session_dir = session_dir
-        self.fps = fps
-        self.width = width
-        self.height = height
+
+        # Nếu không truyền config riêng thì lấy từ CAMERA_CONFIG chung.
+        self.fps = fps if fps is not None else CAMERA_CONFIG["fps"]
+        self.width = width if width is not None else CAMERA_CONFIG["width"]
+        self.height = height if height is not None else CAMERA_CONFIG["height"]
 
         self.video_path = session_dir / "video.mp4"
         self.index_path = session_dir / "video_index.csv"
@@ -36,7 +64,7 @@ class VideoService:
 
         if not self.index_path.exists():
             self.index_path.write_text(
-                "frame_no,timestamp_utc,elapsed_sec\n",
+                "frame_no,timestamp_unix_us,elapsed_us\n",
                 encoding="utf-8"
             )
 
@@ -57,13 +85,13 @@ class VideoService:
             raise RuntimeError("VideoService chưa được open()")
 
         self.frame_no += 1
-        elapsed_sec = perf_now() - self.session_t0
+        elapsed_us = int((perf_now() - self.session_t0) * 1_000_000)
 
         frame = cv2.resize(frame, (self.width, self.height))
         self.writer.write(frame)
 
         with open(self.index_path, "a", encoding="utf-8") as f:
-            f.write(f"{self.frame_no},{utc_now_iso()},{elapsed_sec:.6f}\n")
+            f.write(f"{self.frame_no},{unix_now_us()},{elapsed_us}\n")
 
     def close(self):
         if self.writer:
@@ -80,9 +108,12 @@ class CameraManager:
         self.running = False
         self.selected_camera_index = 0
 
-        self.width = 640
-        self.height = 480
-        self.fps = 20
+        # self.width = 640
+        # self.height = 480
+        # self.fps = 20
+        self.width = CAMERA_CONFIG["width"]
+        self.height = CAMERA_CONFIG["height"]
+        self.fps = CAMERA_CONFIG["fps"]
 
         self.latest_frame = None
 
@@ -118,19 +149,59 @@ class CameraManager:
             "cam_index": cam_index
         }
 
-    def start(self, width=640, height=480, fps=20):
+#     def start(self, width=640, height=480, fps=20):
+#         if self.running:
+#             return {
+#                 "status": "already_running",
+#                 "cam_index": self.selected_camera_index
+#             }
+
+#         self.width = width
+#         self.height = height
+#         self.fps = fps
+
+#         # self.adapter = WebcamAdapter(
+#         #     camera_index=self.selected_camera_index
+# #
+#         self.adapter = WebcamAdapter(
+#             camera_index=self.selected_camera_index,
+#             width=self.width,
+#             height=self.height,
+#             fps=self.fps
+#         )
+        
+
+#         self.adapter.open()
+
+#         self.running = True
+
+#         self.thread = threading.Thread(
+#             target=self._capture_loop,
+#             daemon=True
+#         )
+#         self.thread.start()
+
+#         return {
+#             "status": "started",
+#             "cam_index": self.selected_camera_index
+#         }
+    def start(self, width=None, height=None, fps=None):
         if self.running:
             return {
                 "status": "already_running",
                 "cam_index": self.selected_camera_index
             }
 
-        self.width = width
-        self.height = height
-        self.fps = fps
+        # Nếu không truyền tham số thì lấy từ CAMERA_CONFIG chung.
+        self.width = width if width is not None else CAMERA_CONFIG["width"]
+        self.height = height if height is not None else CAMERA_CONFIG["height"]
+        self.fps = fps if fps is not None else CAMERA_CONFIG["fps"]
 
         self.adapter = WebcamAdapter(
-            camera_index=self.selected_camera_index
+            camera_index=self.selected_camera_index,
+            width=self.width,
+            height=self.height,
+            fps=self.fps
         )
 
         self.adapter.open()
@@ -145,11 +216,29 @@ class CameraManager:
 
         return {
             "status": "started",
-            "cam_index": self.selected_camera_index
+            "cam_index": self.selected_camera_index,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
         }
 
+    # def _capture_loop(self):
+    #     frame_interval = 1.0 / self.fps
+
+    #     while self.running:
+    #         loop_start = time.perf_counter()
+
+    #         ok, frame = self.adapter.read_frame()
+
+    #         if ok and frame is not None:
+    #             with self.lock:
+    #                 self.latest_frame = frame.copy()
+
+    #         elapsed = time.perf_counter() - loop_start
+    #         time.sleep(max(0, frame_interval - elapsed))
     def _capture_loop(self):
         frame_interval = 1.0 / self.fps
+        fail_count = 0
 
         while self.running:
             loop_start = time.perf_counter()
@@ -157,8 +246,24 @@ class CameraManager:
             ok, frame = self.adapter.read_frame()
 
             if ok and frame is not None:
+                fail_count = 0
                 with self.lock:
                     self.latest_frame = frame.copy()
+            else:
+                fail_count += 1
+
+                # Nếu lỗi liên tục thì thử mở lại camera
+                if fail_count >= 30:
+                    print("Camera lỗi liên tục, thử mở lại camera...")
+
+                    try:
+                        self.adapter.close()
+                        time.sleep(0.5)
+                        self.adapter.open()
+                        fail_count = 0
+                    except Exception as e:
+                        print(f"Không mở lại được camera: {e}")
+                        time.sleep(1)
 
             elapsed = time.perf_counter() - loop_start
             time.sleep(max(0, frame_interval - elapsed))

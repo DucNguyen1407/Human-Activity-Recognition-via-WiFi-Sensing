@@ -1,23 +1,42 @@
+# app/services/session_service.py
+#
+# Tạo thư mục session và ghi session_config.json.
+# Format session_id:
+# room_setup_session_person_position_repeat_scenario_MMDD_HHMMSS
+# Ví dụ: 1_2_1_4_2_5_ngoi_dung_0518_111111
 
-# tạo service quản lý session, tạo thư mục lưu trữ dữ liệu cho mỗi session, lưu config session vào file JSON trong thư mục session đó
-# Kết quả session sẽ có tên dạng: ngoi_dung_ngoi_pos1_20260427_153000
 import json
 from datetime import datetime
 from pathlib import Path
 
 from app.core.config import SESSIONS_DIR
-from app.core.time_utils import utc_now_iso
+from app.core.time_utils import unix_now_us
 
 
 class SessionService:
     def create_session(self, session_config: dict):
         scenario = session_config["scenario"]
+        room_id = session_config["room_id"]
+        setup_id = session_config["setup_id"]
+        session_no = session_config["session_no"]
+        person_id = session_config["person_id"]
         position_id = session_config["position_id"]
+        repeat_count = session_config["repeat_count"]
+
+        now = datetime.now()
+        date_part = now.strftime("%m%d")
+        time_part = now.strftime("%H%M%S")
 
         session_id = (
+            f"{room_id}_"
+            f"{setup_id}_"
+            f"{session_no}_"
+            f"{person_id}_"
+            f"{position_id}_"
+            f"{repeat_count}_"
             f"{scenario}_"
-            f"pos{position_id}_"
-            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            f"{date_part}_"
+            f"{time_part}"
         )
 
         session_dir = SESSIONS_DIR / session_id
@@ -26,19 +45,28 @@ class SessionService:
         segments_dir = session_dir / "segments"
         segments_dir.mkdir(parents=True, exist_ok=True)
 
+        capture = session_config.get("capture", {})
+        output_files = {
+            "raw_asus1": "raw_asus1.csv",
+            "raw_asus2": "raw_asus2.csv",
+            "raw_asus3": "raw_asus3.csv",
+            "raw_esp1": "raw_esp1.csv",
+            "raw_esp2": "raw_esp2.csv",
+            "raw_esp3": "raw_esp3.csv",
+            "action_events": "action_events.csv",
+            "segments_dir": "segments",
+        }
+
+        if capture.get("camera", True):
+            output_files["video"] = "video.mp4"
+            output_files["video_index"] = "video_index.csv"
+
         full_config = {
             "session_id": session_id,
-            "start_time_utc": utc_now_iso(),
+            "start_time_unix_us": unix_now_us(),
             "status": "running",
             **session_config,
-            "output_files": {
-                "raw_eth": "raw_eth.csv",
-                "raw_uart": "raw_uart.csv",
-                "video": "video.mp4",
-                "video_index": "video_index.csv",
-                "action_events": "action_events.csv",
-                "segments_dir": "segments"
-            }
+            "output_files": output_files,
         }
 
         config_path = session_dir / "session_config.json"

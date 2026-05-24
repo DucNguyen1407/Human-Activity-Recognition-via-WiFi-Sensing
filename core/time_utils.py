@@ -1,40 +1,41 @@
+# app/core/time_utils.py
+#
+# Chuẩn thời gian dùng trong toàn bộ hệ thống:
+# - timestamp lưu ra file / gửi qua TCP: Unix timestamp đơn vị micro giây (int)
+# - perf_now(): chỉ dùng nội bộ để đo khoảng thời gian chạy, không ghi như timestamp tuyệt đối
+
 from datetime import datetime, timezone
 import time
 import uuid
 
-def utc_now():
-    """
-    Lấy thời gian hiện tại theo UTC (có thông tin múi giờ).
-    
-    Trả về:
-        datetime: Đối tượng datetime UTC hiện tại.
-    """
-    return datetime.now(timezone.utc)
 
-def utc_now_iso():
+def unix_now_us() -> int:
     """
-    Lấy thời gian hiện tại theo UTC ở định dạng ISO 8601.
-    
-    Trả về:
-        str: Chuỗi thời gian ISO 8601.
-    """
-    return utc_now().isoformat()
+    Unix timestamp hiện tại đơn vị micro giây.
 
-def perf_now():
+    Ví dụ: 1716023475123456
     """
-    Lấy giá trị bộ đếm hiệu năng có độ phân giải cao.
-    Dùng để đo thời gian chạy của một đoạn code (tính bằng giây).
-    
-    Trả về:
-        float: Giá trị bộ đếm hiệu năng.
+    return time.time_ns() // 1_000
+
+
+def perf_now() -> float:
+    """
+    Bộ đếm hiệu năng đơn vị giây, chỉ dùng để đo elapsed/duration nội bộ.
+    Không dùng giá trị này làm timestamp tuyệt đối.
     """
     return time.perf_counter()
 
+
+def utc_now():
+    """Giữ lại để tương thích code cũ nếu còn import, không dùng cho dữ liệu mới."""
+    return datetime.now(timezone.utc)
+
+
+def utc_now_iso():
+    """Giữ lại để tương thích code cũ nếu còn import, không dùng cho dữ liệu mới."""
+    return utc_now().isoformat()
+
+
 def new_session_id():
-    """
-    Tạo một mã phiên (session ID) duy nhất dạng chuỗi hex 32 ký tự.
-    
-    Trả về:
-        str: Mã phiên duy nhất.
-    """
+    """Tạo mã phiên ngẫu nhiên nếu sau này cần."""
     return uuid.uuid4().hex

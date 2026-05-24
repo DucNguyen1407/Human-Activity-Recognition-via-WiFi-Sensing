@@ -17,3 +17,14 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 SESSION_CONFIG_PATH = CONFIG_DIR / "session_config.json"
 ACTION_SCENARIOS_PATH = SCRIPT_DIR / "action_scenarios.json"
+
+CAMERA_CONFIG = {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+}
+# CAMERA_CONFIG = {
+#     "width": 680,
+#     "height": 480,
+#     "fps": 20,
+# }
