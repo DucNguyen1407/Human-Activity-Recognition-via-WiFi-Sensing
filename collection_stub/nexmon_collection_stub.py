@@ -28,7 +28,7 @@ from tcp_stream_server import TcpStreamServer
 
 CSI_PAIR_COUNT = 64
 ANTENNA_COUNT = 4
-CSI_INTERVAL_SEC = 0.02  # khoảng 50 packet/s tổng
+CSI_INTERVAL_SEC = 0.002  # khoảng 50 packet/s tổng
 
 ASUS_MACS = [
     "02:1A:2B:3C:4D:5E",

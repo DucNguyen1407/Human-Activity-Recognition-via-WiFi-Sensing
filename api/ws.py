@@ -27,7 +27,7 @@ def _compact_devices(status: dict, device_ids: list[str]) -> dict:
     for device_id in device_ids:
         device = devices.get(device_id, {})
         compact[device_id] = {
-            "status": device.get("status", "NO_DATA"),
+            "status": device.get("status", "DISCONNECTED"),
             "packet_rate": device.get("packet_rate", 0),
         }
 
@@ -50,7 +50,7 @@ def build_ws_state() -> dict:
         "esp": _compact_devices(esp_status, ["esp1", "esp2", "esp3"]),
         "asus": _compact_devices(asus_status, ["asus1", "asus2", "asus3"]),
         "asus_tcp": {
-            "connected": bool(asus_status.get("queue", {}).get("connected", False))
+            "connected": bool((asus_status.get("tcp") or asus_status.get("queue") or {}).get("connected", False))
         },
     }
 

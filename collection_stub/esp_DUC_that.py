@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # ==========================================================
 
 # Laptop 1 mở server trên mọi interface để Laptop 2 kết nối qua IP LAN.
-TCP_HOST = "0.0.0.0"
+TCP_HOST = "127.0.0.1"
 TCP_PORT = 9200
 
 # Cho khớp các lựa chọn baudrate trên UI/backend hiện tại.

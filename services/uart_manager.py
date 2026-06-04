@@ -28,12 +28,20 @@ from app.adapters.esp_tcp_client import EspTcpClient
 # Nếu queue đầy, packet mới sẽ bị drop và đếm trong devices[device_id]["dropped_packets"].
 CSI_QUEUE_MAXSIZE = 50000
 
+# Rate tính theo timestamp trong packet, đơn vị micro giây.
+RATE_WINDOW_US = 1_000_000
+# Nếu hơn 1 giây theo đồng hồ máy tính không có packet mới thì reset rate về 0.
+RATE_IDLE_RESET_SEC = 1.0
+
 
 class UartManager:
     def __init__(self):
-        self.queue = {
+        self.tcp_state = {
             "connected": False,
         }
+
+        # Chỉ khi START SESSION mới cho CSI vào csi_queue để ghi CSV.
+        self.recording_enabled = False
 
         # Danh sách COM ban đầu rỗng. Chỉ cập nhật khi ESP32-Collection gửi com_list.
         self.available_ports: list[str] = []
@@ -69,27 +77,40 @@ class UartManager:
             "baudrate": None,
             "packet_rate": 0,
             "dropped_packets": 0,
-            "last_packet_at": None,
+            "last_packet_at": None,       # timestamp trong packet, đơn vị us
+            "last_packet_wall_at": None,  # time.monotonic() lúc ghi packet gần nhất
             "last_error": None,
         }
 
-    def _prune_rate_window(self, device_id: str, now: float | None = None):
-        if device_id not in self._rate_windows:
+    def _prune_rate_window(self, device_id: str, current_timestamp_us: int | None = None):
+        """
+        Giữ lại các timestamp nằm trong cửa sổ 1 giây gần nhất của chính dữ liệu CSI.
+        current_timestamp_us là timestamp của packet mới nhất, đơn vị micro giây.
+        """
+        if device_id not in self._rate_windows or current_timestamp_us is None:
             return
 
-        if now is None:
-            now = time.monotonic()
-
         window = self._rate_windows[device_id]
-        while window and now - window[0] > 1.0:
+        cutoff = int(current_timestamp_us) - RATE_WINDOW_US
+
+        while window and window[0] < cutoff:
             window.popleft()
 
         self.devices[device_id]["packet_rate"] = len(window)
 
     def refresh_all_rates(self):
-        now = time.monotonic()
-        for device_id in self.devices:
-            self._prune_rate_window(device_id, now)
+        """
+        Rate chính được tính trong update_packet_stat() bằng timestamp của packet.
+        Hàm này chỉ reset rate về 0 nếu quá 1 giây theo đồng hồ máy tính không có packet mới.
+        """
+        now_wall = time.monotonic()
+
+        for device_id, device in self.devices.items():
+            last_wall = device.get("last_packet_wall_at")
+
+            if last_wall is None or now_wall - float(last_wall) > RATE_IDLE_RESET_SEC:
+                self._rate_windows[device_id].clear()
+                device["packet_rate"] = 0
 
     def _refresh_device_display_status(self):
         """
@@ -107,7 +128,7 @@ class UartManager:
             if current == "ERROR":
                 continue
 
-            if not self.queue.get("connected") or not device.get("connected"):
+            if not self.tcp_state.get("connected") or not device.get("connected"):
                 if current != "CONNECTING":
                     device["status"] = "DISCONNECTED"
                 continue
@@ -122,15 +143,16 @@ class UartManager:
         self._refresh_device_display_status()
 
         return {
-            "collection_connected": self.queue["connected"],
+            "collection_connected": self.tcp_state["connected"],
             "ports": list(self.available_ports),
             "available_ports": list(self.available_ports),
             "com_source": self.com_source,
             "com_updated_at": self.com_updated_at,
-            "queue": {
-                **self.queue,
-                "size": self.csi_queue.qsize(),
-                "maxsize": self.csi_queue.maxsize,
+            "tcp": {
+                **self.tcp_state,
+                "csi_queue_size": self.csi_queue.qsize(),
+                "csi_queue_maxsize": self.csi_queue.maxsize,
+                "recording_enabled": self.recording_enabled,
             },
             "uart": self.devices,
             "devices": self.devices,
@@ -144,7 +166,7 @@ class UartManager:
         """
         with self.client_lock:
             if self.client is not None and self.client.connected:
-                self.queue["connected"] = True
+                self.tcp_state["connected"] = True
                 return True
 
             self.client = EspTcpClient()
@@ -152,15 +174,16 @@ class UartManager:
             try:
                 self.client.connect()
             except Exception as e:
-                self.queue["connected"] = False
+                self.tcp_state["connected"] = False
                 self.client = None
                 self.available_ports = []
                 self.com_source = None
                 self.com_updated_at = None
                 raise RuntimeError(f"Chưa kết nối được ESP32-Collection: {e}")
 
-            self.queue["connected"] = True
+            self.tcp_state["connected"] = True
             self.client_running = True
+            print("Đã kết nối TCP tới ESP32-Collection")
 
             self.client_thread = threading.Thread(
                 target=self._client_receive_loop,
@@ -180,7 +203,7 @@ class UartManager:
                 self.client.close()
 
             self.client = None
-            self.queue["connected"] = False
+            self.tcp_state["connected"] = False
             self.available_ports = []
             self.com_source = None
             self.com_updated_at = None
@@ -230,7 +253,7 @@ class UartManager:
             if self.client is not None and not self.client.connected:
                 self.client = None
 
-            self.queue["connected"] = False
+            self.tcp_state["connected"] = False
             self.client_running = False
             self.available_ports = []
             self.com_source = None
@@ -249,7 +272,7 @@ class UartManager:
 
         ok = self.client.request_com_ports()
         if not ok:
-            self.queue["connected"] = False
+            self.tcp_state["connected"] = False
             raise RuntimeError("Không gửi được yêu cầu lấy COM xuống ESP32-Collection")
 
         return {
@@ -283,7 +306,7 @@ class UartManager:
     def connect_device(self, device_id: str, com: str, baudrate: int | None):
         device_id = self._resolve_device_id(device_id)
 
-        if not self.queue["connected"]:
+        if not self.tcp_state["connected"]:
             raise RuntimeError("ESP32-Collection chưa kết nối TCP")
 
         if not self.available_ports:
@@ -310,7 +333,7 @@ class UartManager:
         )
 
         if not sent:
-            self.queue["connected"] = False
+            self.tcp_state["connected"] = False
             raise RuntimeError("Không gửi được lệnh connect xuống ESP32-Collection")
 
         device = self.devices[device_id]
@@ -329,7 +352,7 @@ class UartManager:
     def disconnect_device(self, device_id: str):
         device_id = self._resolve_device_id(device_id)
 
-        if self.client is not None and self.queue["connected"]:
+        if self.client is not None and self.tcp_state["connected"]:
             self.client.send_uart_control(
                 device_id=device_id,
                 action="disconnect",
@@ -413,19 +436,35 @@ class UartManager:
 
         raise ValueError("action không hợp lệ")
 
+    def set_tcp_connected(self, connected: bool):
+        self.tcp_state["connected"] = bool(connected)
+
+    # Giữ tên cũ để tránh lỗi nếu còn chỗ nào gọi set_queue_connected.
     def set_queue_connected(self, connected: bool):
-        self.queue["connected"] = connected
+        self.set_tcp_connected(connected)
+
+    def set_recording_enabled(self, enabled: bool):
+        self.recording_enabled = bool(enabled)
 
     def put_packet(self, packet: dict):
         device_id = packet.get("device_id")
 
         if device_id not in self.devices:
+            print(self.devices)
+            print(f"Received packet with unknown device_id {device_id}, loại {packet.get('type')}")
             return False
 
         if not self.devices[device_id].get("connected", False):
+            print(f"Received packet from {device_id} but device is not marked as connected, loại {packet.get('type')}")
+            return False
+
+        # Chưa START SESSION thì không đưa CSI vào queue.
+        # Backend vẫn đọc TCP để giữ trạng thái, nhưng không tích dữ liệu rác trước phiên thu.
+        if not self.recording_enabled:
             return False
 
         try:
+            # print(f"Nhận packet từ {device_id}, loại {packet.get('type')}, thời gian {packet.get('timestamp')}")
             self.csi_queue.put_nowait(packet)
             return True
         except queue.Full:
@@ -442,18 +481,39 @@ class UartManager:
         except queue.Empty:
             return None
 
-    def update_packet_stat(self, device_id: str):
+    def update_packet_stat(self, device_id: str, timestamp_us: int | None = None):
         """
-        Rate = số packet đã được lấy khỏi queue và ghi file thành công trong 1 giây gần nhất.
-        CsiService gọi hàm này sau khi ghi CSV.
+        Rate = số packet có timestamp nằm trong 1 giây gần nhất của chính dữ liệu CSI.
+        CsiService gọi hàm này sau khi ghi CSV thành công.
         """
         if device_id not in self.devices:
             return
 
-        now = time.monotonic()
-        self._rate_windows[device_id].append(now)
-        self._prune_rate_window(device_id, now)
-        self.devices[device_id]["last_packet_at"] = unix_now_us()
+        if timestamp_us is None:
+            return
+
+        try:
+            timestamp_us = int(timestamp_us)
+        except (TypeError, ValueError):
+            return
+
+        device = self.devices[device_id]
+        window = self._rate_windows[device_id]
+
+        # Nếu timestamp bị nhảy lùi, reset cửa sổ để tránh đếm sai do dữ liệu không theo thứ tự.
+        last_ts = device.get("last_packet_at")
+        if last_ts is not None:
+            try:
+                if timestamp_us < int(last_ts):
+                    window.clear()
+            except (TypeError, ValueError):
+                window.clear()
+
+        window.append(timestamp_us)
+        self._prune_rate_window(device_id, timestamp_us)
+
+        device["last_packet_at"] = timestamp_us
+        device["last_packet_wall_at"] = time.monotonic()
 
     def clear_csi_queue(self):
         while not self.csi_queue.empty():
@@ -469,6 +529,7 @@ class UartManager:
             device["packet_rate"] = 0
             device["dropped_packets"] = 0
             device["last_packet_at"] = None
+            device["last_packet_wall_at"] = None
 
 
 uart_manager = UartManager()

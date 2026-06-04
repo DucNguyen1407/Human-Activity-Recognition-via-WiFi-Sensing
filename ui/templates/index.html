@@ -33,9 +33,10 @@
     }
 
     .app {
-      width: min(1600px, 100%);
+      width: min(1800px, 100%);
       margin: 0 auto;
       padding: 10px;
+      overflow-x: hidden;
     }
 
     .topbar {
@@ -93,12 +94,44 @@
 
     .layout {
       display: grid;
-      grid-template-columns: 300px minmax(560px, 1fr) 340px;
+      grid-template-columns: 360px minmax(0, 1fr) 360px;
       gap: 10px;
       align-items: start;
     }
 
+    .layout > section,
+    .layout > main,
+    .layout > aside {
+      min-width: 0;
+    }
+
+    .layout > aside.stack {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      align-content: stretch;
+    }
+
+    .layout > aside.stack > .panel {
+      min-width: 0;
+    }
+
+    .layout > aside.stack > .panel:last-child {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .layout > aside.stack > .panel:last-child .panel-body {
+      flex: 1;
+    }
+
+    .layout > main.stack {
+      min-width: 0;
+      align-content: start;
+    }
+
     .panel {
+      min-width: 0;
       background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.018));
       border: 1px solid var(--line);
       border-radius: var(--radius);
@@ -203,13 +236,16 @@
 
     .camera-box {
       display: grid;
-      grid-template-columns: 1fr 155px;
+      grid-template-columns: minmax(0, 1fr) 155px;
       gap: 12px;
       align-items: stretch;
+      min-width: 0;
     }
 
     .preview {
-      min-height: 300px;
+      width: 100%;
+      min-width: 0;
+      height: clamp(330px, 46vh, 430px);
       border: 1px solid #1f3245;
       border-radius: 12px;
       background: #020812;
@@ -222,6 +258,8 @@
     .preview img {
       width: 100%;
       height: 100%;
+      max-width: 100%;
+      max-height: 100%;
       object-fit: contain;
       display: none;
     }
@@ -278,16 +316,19 @@
     }
 
     .logbox {
-      height: 170px;
+      height: clamp(150px, 22vh, 230px);
+      max-height: 230px;
       border: 1px solid var(--line);
       background: #040b12;
       border-radius: 10px;
       padding: 10px;
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
       font-family: Consolas, Monaco, monospace;
       font-size: 12px;
       line-height: 1.45;
       color: #b7c9dc;
+      word-break: break-word;
     }
 
     .logbox .ok { color: #86efac; }
@@ -340,6 +381,22 @@
       line-height: 1.35;
     }
 
+    .folder-note {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      padding: 10px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .folder-note b {
+      color: var(--text);
+    }
+
     @media (max-height: 900px) {
       .app { padding: 8px; }
       .topbar { margin-bottom: 6px; }
@@ -351,16 +408,607 @@
       .card { padding: 8px; }
       input, select { height: 28px; }
       button { height: 29px; }
-      .preview { min-height: 280px; }
-      .logbox { height: 155px; }
+      .preview { height: clamp(300px, 44vh, 390px); }
+      .logbox { height: clamp(140px, 20vh, 190px); max-height: 190px; }
       .badge { padding: 5px 8px; }
     }
 
-    @media (max-width: 1150px) {
+    @media (max-width: 1250px) {
       .layout { grid-template-columns: 1fr; }
+      .layout > aside.stack { grid-template-rows: auto auto; }
       .camera-box { grid-template-columns: 1fr; }
+      .preview { height: clamp(280px, 42vh, 380px); }
       .metrics { grid-template-columns: repeat(2, 1fr); }
     }
+
+
+    /* ===== FIX: bố cục full màn hình, camera/log và cột ASUS không tràn ===== */
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      min-height: 100vh;
+    }
+
+    .app {
+      width: 100%;
+      height: 100vh;
+      padding: 8px 10px;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .topbar {
+      min-height: 34px;
+      margin-bottom: 8px;
+    }
+
+    .layout {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      grid-template-columns: 360px minmax(0, 1fr) 360px;
+      align-items: stretch;
+    }
+
+    .layout > section,
+    .layout > main,
+    .layout > aside {
+      height: 100%;
+      min-height: 0;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .panel,
+    .panel-body {
+      min-height: 0;
+      min-width: 0;
+    }
+
+    /* Cột ESP cố định trong khung, nếu thấp quá thì cuộn bên trong */
+    .layout > section.panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .layout > section.panel > .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* Cột giữa: Camera + Log luôn lấp đủ chiều cao màn hình */
+    .layout > main.stack {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1.55fr) minmax(190px, 0.65fr);
+      gap: 10px;
+      align-content: stretch;
+    }
+
+    .layout > main.stack > .panel {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .layout > main.stack > .panel:first-child,
+    .layout > main.stack > .panel:last-child {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .layout > main.stack > .panel:first-child > .panel-body,
+    .layout > main.stack > .panel:last-child > .panel-body {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .camera-box {
+      height: 100%;
+      min-height: 0;
+      grid-template-columns: minmax(0, 1fr) 155px;
+      align-items: stretch;
+    }
+
+    .preview {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      max-height: none;
+      aspect-ratio: auto;
+    }
+
+    .preview img {
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    /* Log realtime nằm trong khung và cuộn bên trong */
+    .logbox {
+      width: 100%;
+      height: 100%;
+      max-height: none;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* Cột ASUS bằng cột ESP; ASUS cố định, Session kéo dài xuống dưới */
+    .layout > aside.stack {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+      align-content: stretch;
+    }
+
+    .layout > aside.stack > .panel:first-child {
+      align-self: start;
+    }
+
+    .layout > aside.stack > .panel:last-child {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .layout > aside.stack > .panel:last-child > .panel-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .folder-note {
+      margin-top: auto;
+    }
+
+    @media (max-width: 1250px) {
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        height: auto;
+        min-height: 100vh;
+        overflow: visible;
+        display: block;
+      }
+
+      .layout {
+        height: auto;
+        overflow: visible;
+        grid-template-columns: 1fr;
+      }
+
+      .layout > section,
+      .layout > main,
+      .layout > aside {
+        height: auto;
+        overflow: visible;
+      }
+
+      .layout > main.stack {
+        height: auto;
+        grid-template-rows: auto auto;
+      }
+
+      .camera-box {
+        height: auto;
+        grid-template-columns: 1fr;
+      }
+
+      .preview {
+        height: clamp(300px, 48vh, 460px);
+      }
+
+      .logbox {
+        height: 220px;
+      }
+    }
+
+  
+
+    /* ===== FINAL FIT: camera thấp hơn, log dài hơn, ESP không cuộn ===== */
+    @media (min-width: 1251px) {
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .app {
+        height: 100vh;
+        padding: 6px 10px;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .topbar {
+        min-height: 30px;
+        margin-bottom: 6px;
+      }
+
+      .title h1 {
+        font-size: 19px;
+        line-height: 1.15;
+      }
+
+      .global-status {
+        gap: 6px;
+      }
+
+      .badge {
+        padding: 5px 8px;
+        font-size: 12px;
+      }
+
+      .layout {
+        height: 100%;
+        min-height: 0;
+        gap: 8px;
+        grid-template-columns: 360px minmax(0, 1fr) 360px;
+        align-items: stretch;
+      }
+
+      .panel-header {
+        padding: 6px 10px;
+        min-height: 36px;
+      }
+
+      .panel-body {
+        padding: 8px;
+      }
+
+      .stack {
+        gap: 7px;
+      }
+
+      input,
+      select {
+        height: 27px;
+      }
+
+      button {
+        height: 28px;
+        padding: 0 10px;
+      }
+
+      label {
+        margin-bottom: 3px;
+        font-size: 10.5px;
+      }
+
+      .card {
+        padding: 7px;
+      }
+
+      .card-title {
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+
+      .side-actions {
+        gap: 7px;
+      }
+
+      .row {
+        gap: 7px;
+      }
+
+      /* Cột ESP: ép vừa một màn hình, không hiện thanh cuộn dọc */
+      .layout > section.panel > .panel-body {
+        overflow: hidden;
+      }
+
+      #espCards.stack {
+        gap: 7px;
+      }
+
+      #espCards .card {
+        padding: 8px;
+      }
+
+      #espCards .card-title {
+        margin-bottom: 6px;
+      }
+
+      #espCards .card .row + div {
+        height: 6px !important;
+      }
+
+      .compact-rate {
+        gap: 5px;
+      }
+
+      .rate-row,
+      .asus-row {
+        padding: 6px 8px;
+      }
+
+      .rate-row {
+        grid-template-columns: 65px 1fr auto;
+      }
+
+      .asus-row {
+        grid-template-columns: 56px minmax(0, 1fr) 62px;
+      }
+
+      .rate-value-small {
+        font-size: 18px;
+      }
+
+      /* Cột giữa: camera lớn hơn một chút, vẫn giữ tỉ lệ 16:9; log chiếm phần còn lại */
+      .layout > main.stack {
+        height: 100%;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 8px;
+        align-content: stretch;
+      }
+
+      .layout > main.stack > .panel:first-child {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .layout > main.stack > .panel:first-child > .panel-body {
+        flex: 0 0 auto;
+        min-height: 0;
+      }
+
+      .camera-box {
+        height: auto;
+        min-height: 0;
+        grid-template-columns: minmax(0, 1fr) 155px;
+        align-items: start;
+      }
+
+      .preview {
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        max-height: min(48vh, 430px);
+        aspect-ratio: 16 / 9;
+      }
+
+      .preview img {
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+
+      .preview .placeholder {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+      }
+
+      .layout > main.stack > .panel:last-child {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .layout > main.stack > .panel:last-child > .panel-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+
+      .logbox {
+        flex: 1;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        max-height: none;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
+
+      /* Cột ASUS: giữ ASUS cố định, Session kéo dài xuống */
+      .layout > aside.stack {
+        height: 100%;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 8px;
+      }
+
+      .layout > aside.stack > .panel:first-child {
+        align-self: start;
+      }
+
+      .layout > aside.stack > .panel:last-child {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .layout > aside.stack > .panel:last-child > .panel-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .folder-note {
+        margin-top: auto;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+    }
+
+    @media (min-width: 1251px) and (max-height: 840px) {
+      .app {
+        padding: 5px 8px;
+      }
+
+      .topbar {
+        min-height: 28px;
+        margin-bottom: 5px;
+      }
+
+      .title h1 {
+        font-size: 18px;
+      }
+
+      .panel-header {
+        padding: 5px 9px;
+        min-height: 32px;
+      }
+
+      .panel-body {
+        padding: 7px;
+      }
+
+      .stack,
+      #espCards.stack {
+        gap: 6px;
+      }
+
+      input,
+      select {
+        height: 25px;
+      }
+
+      button {
+        height: 26px;
+      }
+
+      .card,
+      #espCards .card {
+        padding: 7px;
+      }
+
+      .rate-row,
+      .asus-row {
+        padding: 5px 7px;
+      }
+
+      .preview {
+        max-height: min(44vh, 390px);
+      }
+
+      .logbox {
+        font-size: 11.5px;
+      }
+    }
+
+
+    /* ===== FINAL USER REQUEST: controls under preview, preview spans full middle column ===== */
+    .camera-controls {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      min-width: 0;
+    }
+
+    .camera-select-wrap {
+      min-width: 0;
+    }
+
+    .camera-controls .checkbox-line {
+      margin: 0;
+      min-height: 28px;
+      white-space: nowrap;
+      justify-content: flex-start;
+    }
+
+    @media (min-width: 1251px) {
+      .layout > main.stack {
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .layout > main.stack > .panel:first-child > .panel-body {
+        flex: 0 0 auto;
+      }
+
+      .camera-box {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        gap: 8px;
+        align-items: start;
+        height: auto;
+        min-height: 0;
+      }
+
+      .preview {
+        width: 100%;
+        height: clamp(365px, 47vh, 470px);
+        min-height: 0;
+        max-height: none;
+        aspect-ratio: auto;
+      }
+
+      .preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .preview .placeholder {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+      }
+
+      .logbox {
+        min-height: 0;
+      }
+    }
+
+    @media (min-width: 1251px) and (max-height: 840px) {
+      .camera-box {
+        gap: 7px;
+      }
+
+      .preview {
+        height: clamp(335px, 44vh, 420px);
+        max-height: none;
+      }
+
+      .camera-controls {
+        gap: 8px;
+      }
+
+      .camera-controls .checkbox-line {
+        min-height: 25px;
+      }
+    }
+
+    @media (max-width: 1250px) {
+      .camera-box {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto;
+      }
+
+      .camera-controls {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+
+      .camera-controls .checkbox-line {
+        white-space: normal;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -413,15 +1061,12 @@
               <img id="videoFeed" alt="Live camera" />
               <div id="previewText" class="placeholder">Camera preview sẽ hiển thị ở đây<br/>Endpoint: /video_feed</div>
             </div>
-            <div class="stack">
-              <div>
+            <div class="camera-controls">
+              <div class="camera-select-wrap">
                 <label>Chọn Camera</label>
                 <select id="cameraSelect"></select>
               </div>
               <label class="checkbox-line"><input id="cameraEnabled" type="checkbox" checked /> Ghi video trong session</label>
-              <div class="card">
-                <div class="mini">Thông số camera dùng mặc định trong code.</div>
-              </div>
             </div>
           </div>
         </section>
@@ -451,23 +1096,23 @@
                 <input id="ethPort" type="number" value="9100" />
               </div>
             </div>
-            <button class="btn-blue btn-full" onclick="saveEthernetConfig()">Lưu TCP ASUS</button>
+            <button class="btn-blue btn-full" onclick="saveEthernetConfig()">Cấu hình & kết nối TCP ASUS</button>
             <div class="card">
               <div class="card-title"><span>Trạng thái & Rate ASUS</span><span class="mini">packet/s</span></div>
               <div class="compact-rate">
                 <div class="asus-row">
                   <b>ASUS1</b>
-                  <span class="badge"><span id="asus1Dot" class="dot off"></span><b id="asus1Status">NO_DATA</b></span>
+                  <span class="badge"><span id="asus1Dot" class="dot off"></span><b id="asus1Status">DISCONNECTED</b></span>
                   <div id="asus1Rate" class="rate-value-small">0 Hz</div>
                 </div>
                 <div class="asus-row">
                   <b>ASUS2</b>
-                  <span class="badge"><span id="asus2Dot" class="dot off"></span><b id="asus2Status">NO_DATA</b></span>
+                  <span class="badge"><span id="asus2Dot" class="dot off"></span><b id="asus2Status">DISCONNECTED</b></span>
                   <div id="asus2Rate" class="rate-value-small">0 Hz</div>
                 </div>
                 <div class="asus-row">
                   <b>ASUS3</b>
-                  <span class="badge"><span id="asus3Dot" class="dot off"></span><b id="asus3Status">NO_DATA</b></span>
+                  <span class="badge"><span id="asus3Dot" class="dot off"></span><b id="asus3Status">DISCONNECTED</b></span>
                   <div id="asus3Rate" class="rate-value-small">0 Hz</div>
                 </div>
               </div>
@@ -515,6 +1160,9 @@
             <div class="side-actions">
               <button class="btn-green" onclick="startSession()">START SESSION</button>
               <button class="btn-orange" onclick="stopSession()">STOP SESSION</button>
+            </div>
+            <div class="folder-note">
+              <b>Folder:</b> phòng_setup_phiên_người_vị trí_số lần lặp_tên kịch bản_tháng ngày_giờ phút giây
             </div>
           </div>
         </section>
@@ -584,7 +1232,7 @@
         card.innerHTML = `
           <div class="card-title">
             <span>UART ${idx + 1} / ${id.toUpperCase()}</span>
-            <span class="badge"><span id="${id}Dot" class="dot off"></span><b id="${id}Status">NOT_CONNECTED</b></span>
+            <span class="badge"><span id="${id}Dot" class="dot off"></span><b id="${id}Status">DISCONNECTED</b></span>
           </div>
           <div class="row">
             <div>
@@ -596,6 +1244,7 @@
               <select id="${id}Baud">
                 <option value="115200">115200</option>
                 <option value="921600">921600</option>
+                <option value="460800">460800</option>
                 <option value="1500000">1500000</option>
               </select>
             </div>
@@ -681,9 +1330,9 @@
     }
 
     function updateUartUI(data) {
-      const hasTcpInfo = data.queue !== undefined || data.collection_connected !== undefined;
+      const hasTcpInfo = data.tcp !== undefined || data.collection_connected !== undefined;
       if (hasTcpInfo) {
-        const connected = !!data.queue?.connected || !!data.collection_connected;
+        const connected = !!data.tcp?.connected || !!data.collection_connected;
         setDot("espTcpDot", "espTcpText", connected, connected ? "ON" : "OFF");
         setEspControlsEnabled(connected && comPorts.length > 0);
       }
@@ -694,7 +1343,7 @@
         const status = String(d.status || "DISCONNECTED").toUpperCase();
         const isOn = !!d.connected || status === "CONNECTED" || status === "RECEIVING";
         const isWarn = status === "CONNECTING" || status === "ERROR";
-        const label = status === "DISCONNECTED" ? "NOT_CONNECTED" : status;
+        const label = status;
         setDot(`${id}Dot`, `${id}Status`, isOn, label, isWarn);
         $(`${id}Rate`).textContent = `${Number(d.packet_rate || 0).toFixed(0)} Hz`;
       });
@@ -754,23 +1403,24 @@
       asusDevices.forEach((id) => {
         const d = devs[id] || {};
         const rate = Number(d.packet_rate || 0);
-        const status = String(d.status || (rate > 0 ? "RECEIVING" : "NO_DATA")).toUpperCase();
-        const active = status === "RECEIVING" || status === "ACTIVE" || rate > 0;
-        const waiting = status === "WAITING";
+        const status = String(d.status || "DISCONNECTED").toUpperCase();
+        const receiving = status === "RECEIVING" || rate > 0;
+        const connected = status === "CONNECTED";
+        const label = receiving ? "RECEIVING" : connected ? "CONNECTED" : "DISCONNECTED";
         $(`${id}Rate`).textContent = `${rate.toFixed(0)} Hz`;
-        setDot(`${id}Dot`, `${id}Status`, active, active ? "RECEIVING" : waiting ? "WAITING" : "NO_DATA", waiting);
+        setDot(`${id}Dot`, `${id}Status`, receiving || connected, label, connected);
       });
     }
 
     async function saveEthernetConfig() {
       const payload = {
-        action: "configure_queue",
+        action: "configure_tcp",
         host: $("ethHost").value.trim(),
         port: Number($("ethPort").value),
       };
       try {
         await api("/ethernet/control", { method: "POST", body: JSON.stringify(payload) });
-        log(`Đã gửi cấu hình TCP ASUS: ${payload.host}:${payload.port}`, "ok");
+        log(`Đã cấu hình và kết nối TCP ASUS: ${payload.host}:${payload.port}`, "ok");
       } catch (err) {
         log(`Lỗi lưu ASUS: ${err.message}`, "err");
       }

@@ -1,4 +1,4 @@
-# app/api/config.py
+# app/api/config_scenario.py
 # API trả danh sách kịch bản cho UI.
 # Chỉ trả danh sách tên scenario, không dùng label.
 

@@ -2,7 +2,7 @@
 # ├── app/
 # │   ├── api/
 # │   │   ├── [sessions.py](http://sessions.py/)              # API start/stop phiên thu
-# │   │   ├── [config.py](http://config.py/)                # API trả danh sách scenario cho UI
+# │   │   ├── [config_crenario.py](http://configscenario.py/)                # API trả danh sách scenario cho UI
 # │   │   ├── [camera.py](http://camera.py/)                # API camera preview/select
 # │   │   ├── [ethernet.py](http://ethernet.py/)              # API quản lý Nexmon/asus source
 # │   │   ├── [uart.py](http://uart.py/)                  # API quản lý ESP/uart source
@@ -33,11 +33,10 @@
 # │   │
 # │   ├── [main.py](http://main.py/)    └──                  # FastAPI entrypoint
 # │   └──  collection_stub/                 # Phần trống/mẫu cho nhóm Collection
-# │       ├── [README.md](http://readme.md/)                    # Quy ước giao tiếp giữa Collection và Server ---- trong file word trên nhóm rồi 
 # │       ├── tcp_stream_server.py         # Class TCP server mẫu dùng chung
 # │       ├── nexmon_collection_stub.py    # Mẫu Nexmon-Collection gửi asus1/2/3
 # │       └── esp32_collection_stub.py     # Mẫu ESP32-Collection gửi esp1/2/3
-# │       └── esp_DUC_that.py     # code bên đức chạy esp
+# │       └── esp_test.py     # code esp chạy thật rồi không fake nữa 
 # │
 # ├── data/
 # │   ├── scripts/

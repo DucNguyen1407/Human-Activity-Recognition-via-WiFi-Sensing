@@ -16,9 +16,9 @@ from typing import Optional
 # Map ASUS MAC thật về ID ngắn dùng trong backend/UI/CSV.
 # Collection vẫn có thể gửi MAC; backend phía sau vẫn dùng asus1/asus2/asus3.
 ASUS_MAC_TO_ID = {
-    "02:1A:2B:3C:4D:5E": "asus1",
-    "02:AA:BB:CC:DD:01": "asus2",
-    "02:11:22:33:44:55": "asus3",
+    "00:00:00:00:00:11": "asus1",
+    "00:00:00:00:00:12": "asus2",
+    "00:00:00:00:00:13": "asus3",
 }
 
 

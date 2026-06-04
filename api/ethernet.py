@@ -1,7 +1,7 @@
 # app/api/ethernet.py
 #
 # API quản lý ASUS/Nexmon Collection.
-# Web UI chỉ POST host/port xuống backend khi người dùng bấm Lưu TCP ASUS.
+# Web UI POST host/port xuống backend khi người dùng bấm Lưu/Kết nối TCP ASUS.
 # Không dùng GET /ethernet nữa vì realtime status/rate ASUS lấy qua WebSocket /ws/status.
 # Không dùng protocol và không cấu hình riêng từng asus trên Web.
 

@@ -1,9 +1,12 @@
 import cv2
 import time
+import asyncio
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from fastapi import Request  # sửa lỗi k thoát uvicorn khi client ngắt kết nối giữa chừng
 
 from app.services.camera_service import camera_manager
 
@@ -39,18 +42,47 @@ def control_video(payload: VideoControlRequest):
     return camera_manager.stop()
 
 
-@router.get("/video_feed")
-def video_feed():
-    def generate():
-        while True:
-            frame = camera_manager.get_frame()
+# @router.get("/video_feed")
+# def video_feed():
+#     def generate():
+#         while True:
+#             frame = camera_manager.get_frame()
 
+#             if frame is None:
+#                 time.sleep(0.05)
+#                 continue
+
+#             ret, buffer = cv2.imencode(".jpg", frame)
+
+#             if not ret:
+#                 continue
+
+#             yield (
+#                 b"--frame\r\n"
+#                 b"Content-Type: image/jpeg\r\n\r\n" +
+#                 buffer.tobytes() +
+#                 b"\r\n"
+#             )
+
+#     return StreamingResponse(
+#         generate(),
+#         media_type="multipart/x-mixed-replace; boundary=frame"
+#     )
+
+# sửa lỗi uvicorn không thoát được khi client ngắt kết nối giữa chừng
+@router.get("/video_feed")
+async def video_feed(request: Request):
+    async def generate():
+        while True:
+            if await request.is_disconnected():
+                break
+
+            frame = camera_manager.get_frame()
             if frame is None:
-                time.sleep(0.05)
+                await asyncio.sleep(0.05)
                 continue
 
             ret, buffer = cv2.imencode(".jpg", frame)
-
             if not ret:
                 continue
 
@@ -61,7 +93,4 @@ def video_feed():
                 b"\r\n"
             )
 
-    return StreamingResponse(
-        generate(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
+    return StreamingResponse(generate(), media_type="multipart/x-mixed-replace; boundary=frame")

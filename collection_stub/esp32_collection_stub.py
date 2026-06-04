@@ -21,7 +21,7 @@ from tcp_stream_server import TcpStreamServer
 
 
 FAKE_COM_PORTS = ["COM3", "COM4", "COM5", "COM6", "COM7", "COM8"]
-CSI_INTERVAL_SEC = 0.02
+CSI_INTERVAL_SEC = 0.002
 CSI_PAIR_COUNT = 64
 
 ESP_MACS = [
@@ -55,6 +55,7 @@ def main():
             "connected": False,
             "com": None,
             "baudrate": 115200,
+            "seq": random.randint(0, 4095),
         }
         for mac in ESP_MACS
     }
@@ -148,18 +149,13 @@ def main():
     server.set_message_handler(handle_message)
     server.set_client_connected_handler(send_com_list)
     server.start()
+    # Seq bắt đầu ngẫu nhiên trong khoảng 0..4095.
+    # Mỗi gói gửi ra dùng seq hiện tại, sau đó tăng 1.
+    # Khi seq = 4095 thì gói kế tiếp quay lại 0.
 
-    seq = 0
     last_com_list_time = 0.0
 
     while True:
-        now = time.time()
-
-        # Gửi lại COM list định kỳ để UI/Management luôn có dữ liệu fake.
-        if now - last_com_list_time >= 5:
-            send_com_list()
-            last_com_list_time = now
-
         connected_devices = [
             device_id
             for device_id, cfg in devices.items()
@@ -170,13 +166,13 @@ def main():
             time.sleep(0.1)
             continue
 
-        seq += 1
+        # Chọn ngẫu nhiên 1 ESP đang connected để gửi fake CSI
         device_id = random.choice(connected_devices)
 
         packet = {
             "type": "csi_data",
             "device_id": device_id,
-            "seq": seq,
+            "seq": devices[device_id]["seq"],
             "timestamp": unix_now_us(),
             "radio": {
                 "rssi": random.randint(-80, -30),
@@ -189,6 +185,11 @@ def main():
         }
 
         server.send_packet(packet)
+
+        # Tăng seq riêng cho ESP vừa gửi
+        # 4094 -> 4095 -> 0 -> 1 ...
+        devices[device_id]["seq"] = (devices[device_id]["seq"] + 1) % 4096
+
         time.sleep(CSI_INTERVAL_SEC)
 
 

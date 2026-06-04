@@ -7,6 +7,7 @@
 # - chạy scenario/audio và ghi action_events.csv
 
 import asyncio
+import json
 import threading
 import time
 import traceback
@@ -17,16 +18,11 @@ from app.services.camera_service import VideoService, camera_manager
 from app.services.csi_service import CsiService
 from app.services.scenario_audio_service import AudioCueService, ScenarioService
 from app.services.session_service import SessionService
-
 from app.core.config import CAMERA_CONFIG
 
-main_loop = None
 
-# DEFAULT_CAMERA_CONFIG = {
-#     "fps": 20,
-#     "width": 640,
-#     "height": 480,
-# }
+main_loop = None
+ACTION_PACKET_TARGET = 1000
 
 
 def set_main_loop(loop):
@@ -36,13 +32,6 @@ def set_main_loop(loop):
 
 
 def update_state(data: dict):
-    """
-    Ghi log nội bộ và gọi broadcast.
-
-    WebSocket hiện chỉ gửi status/rate của 6 thiết bị, nên không cần giữ
-    current_state session trong ws.py nữa. Các message session chỉ dùng để
-    debug ở backend.
-    """
     print("UPDATE STATE:", data)
 
     if main_loop is None:
@@ -98,6 +87,7 @@ class RecordingService:
         self.thread = None
         self.is_running = False
         self.stop_requested = False
+        self.stop_event = threading.Event()
 
     def start(self, session_config: dict):
         if self.is_running:
@@ -113,6 +103,8 @@ class RecordingService:
             }
 
         self.stop_requested = False
+        self.stop_event.clear()
+
         self.thread = threading.Thread(
             target=self._run,
             args=(session_config,),
@@ -143,6 +135,7 @@ class RecordingService:
             }
 
         self.stop_requested = True
+        self.stop_event.set()
         update_state({"message": "Stop requested"})
 
         return {
@@ -150,11 +143,31 @@ class RecordingService:
             "message": "Stopping current session",
         }
 
+    def _update_session_status(self, session_dir, status: str):
+        if session_dir is None:
+            return
+
+        config_path = session_dir / "session_config.json"
+        if not config_path.exists():
+            return
+
+        try:
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            data["status"] = status
+            config_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            print(f"Không cập nhật được session_config.json: {e}")
+
     def _run(self, session_config: dict):
-        stop_video_event = threading.Event()
         video_ready_event = threading.Event()
         video_thread = None
         csi_service = None
+        session_dir = None
+        camera_enabled = False
+        stopped_midway = False
 
         try:
             print("THREAD STARTED")
@@ -192,7 +205,6 @@ class RecordingService:
 
             if camera_enabled:
                 camera_cfg = {
-                    # **DEFAULT_CAMERA_CONFIG,
                     **CAMERA_CONFIG,
                     "camera_index": camera_manager.selected_camera_index,
                 }
@@ -206,7 +218,7 @@ class RecordingService:
 
                 video_thread = threading.Thread(
                     target=record_video,
-                    args=(session_dir, camera_cfg, stop_video_event, video_ready_event, session_t0),
+                    args=(session_dir, camera_cfg, self.stop_event, video_ready_event, session_t0),
                     daemon=True,
                 )
                 video_thread.start()
@@ -214,46 +226,68 @@ class RecordingService:
                 print("Waiting for video ready...")
                 update_state({"message": "Waiting for video ready"})
 
-                if not video_ready_event.wait(timeout=10):
-                    stop_video_event.set()
-                    if video_thread:
-                        video_thread.join()
-                    raise RuntimeError("Camera chưa ghi được frame đầu tiên sau 10 giây")
+                wait_start = time.monotonic()
+                while not video_ready_event.is_set():
+                    if self.stop_event.is_set():
+                        stopped_midway = True
+                        break
+                    if time.monotonic() - wait_start > 10:
+                        raise RuntimeError("Camera chưa ghi được frame đầu tiên sau 10 giây")
+                    time.sleep(0.05)
 
-                time.sleep(0.5)
+                if stopped_midway:
+                    update_state({"message": "Stop requested before video ready"})
+                else:
+                    time.sleep(0.5)
 
-            update_state({"message": "Running action plan"})
+            if not stopped_midway:
+                update_state({"message": "Running action plan"})
+                audio = AudioCueService(session_dir)
+                result = audio.run_action_plan(
+                    action_plan,
+                    session_t0=session_t0,
+                    stop_event=self.stop_event,
+                    packet_progress_getter=csi_service.get_esp_seq_progress_snapshot,
+                    packet_target=ACTION_PACKET_TARGET,
+                )
+                stopped_midway = bool(result.get("stopped_midway")) or self.stop_requested
 
-            audio = AudioCueService(session_dir)
-            audio.run_action_plan(action_plan, session_t0=session_t0)
+            if stopped_midway:
+                print("Stopped midway")
+                update_state({"message": "Stopped midway"})
+            else:
+                print("Done")
+                update_state({"message": "Done"})
 
-            print("Done")
             print("Action events:", session_dir / "action_events.csv")
             print("CSI data:")
-            print(" -", session_dir / "raw_asus1.csv")
-            print(" -", session_dir / "raw_asus2.csv")
-            print(" -", session_dir / "raw_asus3.csv")
-            print(" -", session_dir / "raw_esp1.csv")
-            print(" -", session_dir / "raw_esp2.csv")
-            print(" -", session_dir / "raw_esp3.csv")
+            print(" -", session_dir / "raw_asus1.bin")
+            print(" -", session_dir / "raw_asus2.bin")
+            print(" -", session_dir / "raw_asus3.bin")
+            print(" -", session_dir / "raw_esp1.bin")
+            print(" -", session_dir / "raw_esp2.bin")
+            print(" -", session_dir / "raw_esp3.bin")
             if camera_enabled:
                 print("Video:", session_dir / "video.mp4")
                 print("Video index:", session_dir / "video_index.csv")
-
-            update_state({"message": "Done"})
 
         except Exception as e:
             traceback.print_exc()
             update_state({"error": str(e), "message": f"Error: {str(e)}"})
 
         finally:
-            stop_video_event.set()
+            # Dừng video trước, sau đó dừng CSI. CSI sẽ khóa recording_enabled=False
+            # và writer ghi nốt packet còn lại trong queue trước khi đóng CSV.
+            self.stop_event.set()
 
             if video_thread:
                 video_thread.join()
 
             if csi_service:
                 csi_service.stop_csi_collection()
+
+            if stopped_midway or self.stop_requested:
+                self._update_session_status(session_dir, "stopped_midway")
 
             self.is_running = False
             update_state({

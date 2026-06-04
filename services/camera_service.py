@@ -15,31 +15,6 @@ from app.core.config import CAMERA_CONFIG
 
 
 class VideoService:
-    # def __init__(
-    #     self,
-    #     session_dir: Path,
-    #     fps: int = 20,
-    #     width: int = 640,
-    #     height: int = 480,
-    #     session_t0: float | None = None
-    # ):
-    #     self.session_dir = session_dir
-    #     self.fps = fps
-    #     self.width = width
-    #     self.height = height
-
-    #     self.video_path = session_dir / "video.mp4"
-    #     self.index_path = session_dir / "video_index.csv"
-
-    #     self.writer = None
-    #     self.frame_no = 0
-    #     self.session_t0 = session_t0 if session_t0 is not None else perf_now()
-
-    #     if not self.index_path.exists():
-    #         self.index_path.write_text(
-    #             "frame_no,timestamp_unix_us,elapsed_us\n",
-    #             encoding="utf-8"
-    #         )
     def __init__(
         self,
         session_dir: Path,
@@ -148,43 +123,6 @@ class CameraManager:
             "status": "success",
             "cam_index": cam_index
         }
-
-#     def start(self, width=640, height=480, fps=20):
-#         if self.running:
-#             return {
-#                 "status": "already_running",
-#                 "cam_index": self.selected_camera_index
-#             }
-
-#         self.width = width
-#         self.height = height
-#         self.fps = fps
-
-#         # self.adapter = WebcamAdapter(
-#         #     camera_index=self.selected_camera_index
-# #
-#         self.adapter = WebcamAdapter(
-#             camera_index=self.selected_camera_index,
-#             width=self.width,
-#             height=self.height,
-#             fps=self.fps
-#         )
-        
-
-#         self.adapter.open()
-
-#         self.running = True
-
-#         self.thread = threading.Thread(
-#             target=self._capture_loop,
-#             daemon=True
-#         )
-#         self.thread.start()
-
-#         return {
-#             "status": "started",
-#             "cam_index": self.selected_camera_index
-#         }
     def start(self, width=None, height=None, fps=None):
         if self.running:
             return {
