@@ -24,12 +24,11 @@ FAKE_COM_PORTS = ["COM3", "COM4", "COM5", "COM6", "COM7", "COM8"]
 CSI_INTERVAL_SEC = 0.002
 CSI_PAIR_COUNT = 64
 
-ESP_MACS = [
-    "00:1A:2B:3C:4D:5E",
-    "00:1C:C7:9A:01:6A",
-    "00:1D:2E:3F:40:51",
+ESP_MACS =[
+    "D0:CF:13:ED:2E:EC",
+    "D0:CF:13:EB:8A:9C",  
+    "D0:CF:13:EC:49:04",
 ]
-
 
 def unix_now_us() -> int:
     return time.time_ns() // 1_000

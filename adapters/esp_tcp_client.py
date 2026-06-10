@@ -22,17 +22,17 @@ ESP_COLLECTION_PORT = 9200
 
 # Map ESP MAC thật về ID ngắn dùng trong backend/UI/CSV.
 # Collection vẫn có thể gửi MAC; backend phía sau vẫn dùng esp1/esp2/esp3.
-# ESP_MAC_TO_ID = {
-#     "D0:CF:13:ED:2E:EC": "esp1",
-#     "D0:CF:13:EB:8A:9C": "esp2",  
-#     "D0:CF:13:EC:49:04": "esp3",
-# }
-# MAC giả
 ESP_MAC_TO_ID = {
-    "00:1A:2B:3C:4D:5E": "esp1",
-    "00:1C:C7:9A:01:6A": "esp2",
-    "00:1D:2E:3F:40:51": "esp3",
+    "D0:CF:13:ED:2E:EC": "esp1",
+    "D0:CF:13:EB:8A:9C": "esp2",  
+    "D0:CF:13:EC:49:04": "esp3",
 }
+# # MAC giả
+# ESP_MAC_TO_ID = {
+#     "00:1A:2B:3C:4D:5E": "esp1",
+#     "00:1C:C7:9A:01:6A": "esp2",
+#     "00:1D:2E:3F:40:51": "esp3",
+# }
 # Map ngược để khi UI/backend gửi lệnh connect/disconnect bằng esp1/esp2/esp3,
 # TCP client gửi xuống Collection bằng MAC thật.
 ESP_ID_TO_MAC = {

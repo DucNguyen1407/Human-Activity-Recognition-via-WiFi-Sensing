@@ -3,7 +3,6 @@
 # Tạo thư mục session và ghi session_config.json.
 # Format session_id:
 # room_setup_session_person_position_repeat_scenario_MMDD_HHMMSS
-# Ví dụ: 1_2_1_4_2_5_ngoi_dung_0518_111111
 
 import json
 from datetime import datetime
@@ -42,19 +41,16 @@ class SessionService:
         session_dir = SESSIONS_DIR / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        segments_dir = session_dir / "segments"
-        segments_dir.mkdir(parents=True, exist_ok=True)
 
         capture = session_config.get("capture", {})
         output_files = {
-            "raw_asus1": "raw_asus1.csv",
-            "raw_asus2": "raw_asus2.csv",
-            "raw_asus3": "raw_asus3.csv",
-            "raw_esp1": "raw_esp1.csv",
-            "raw_esp2": "raw_esp2.csv",
-            "raw_esp3": "raw_esp3.csv",
+            "raw_asus1": "raw_asus1.bin",
+            "raw_asus2": "raw_asus2.bin",
+            "raw_asus3": "raw_asus3.bin",
+            "raw_esp1": "raw_esp1.bin",
+            "raw_esp2": "raw_esp2.bin",
+            "raw_esp3": "raw_esp3.bin",
             "action_events": "action_events.csv",
-            "segments_dir": "segments",
         }
 
         if capture.get("camera", True):

@@ -22,7 +22,7 @@ from app.core.config import CAMERA_CONFIG
 
 
 main_loop = None
-ACTION_PACKET_TARGET = 1000
+ACTION_PACKET_TARGET = 0 # CSI packet type to trigger action execution. 0 = ESP packets, 1 = ASUS packets
 
 
 def set_main_loop(loop):

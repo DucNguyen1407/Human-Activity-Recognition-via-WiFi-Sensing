@@ -451,11 +451,11 @@ class UartManager:
 
         if device_id not in self.devices:
             print(self.devices)
-            print(f"Received packet with unknown device_id {device_id}, loại {packet.get('type')}")
+            print(f"Received packet with unknown device_id {device_id}, type {packet.get('type')}")
             return False
 
         if not self.devices[device_id].get("connected", False):
-            print(f"Received packet from {device_id} but device is not marked as connected, loại {packet.get('type')}")
+      #      print(f"Received packet from {device_id} but device is not marked as connected, type {packet.get('type')}")
             return False
 
         # Chưa START SESSION thì không đưa CSI vào queue.

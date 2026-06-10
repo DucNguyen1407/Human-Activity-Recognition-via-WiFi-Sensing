@@ -1,22 +1,21 @@
 # app/services/csi_service.py
 #
-# CSI Management.
+# CSI Management - binary storage.
 #
 # Luồng dữ liệu:
 # Nexmon-Collection TCP server -> ethernet_manager TCP receiver -> ethernet_manager.csi_queue
-# -> CsiService ghi raw_asus1/2/3.csv
+# -> CsiService ghi raw_asus1/2/3.bin
 #
 # ESP32-Collection TCP server -> EspTcpClient -> uart_manager.csi_queue
-# -> CsiService ghi raw_esp1/2/3.csv
+# -> CsiService ghi raw_esp1/2/3.bin
 #
-# Quy ước:
-# - Collection có thể gửi device_id là MAC thật.
-# - Adapter TCP map MAC -> asus1/asus2/asus3 hoặc esp1/esp2/esp3.
-# - CSV vẫn giữ tên file cũ raw_asus1.csv... raw_esp3.csv.
-# - CSI Q/I được tách thành từng cột riêng để mở Excel dễ xử lý.
+# Binary record size:
+# - ESP32: 144 bytes / packet
+# - ASUS : 1044 bytes / packet
 
-import csv
+import struct
 import threading
+import time
 from pathlib import Path
 
 from app.services.ethernet_manager import ethernet_manager
@@ -24,13 +23,30 @@ from app.services.uart_manager import uart_manager
 from app.core.time_utils import perf_now
 
 
-# Ghi theo batch để giảm overhead khi CSI tốc độ cao.
 CSI_WRITE_BATCH_SIZE = 500
-CSV_FLUSH_INTERVAL_SEC = 2.0
-CSV_FILE_BUFFER_BYTES = 1024 * 1024
-
-# ESP seq chạy 0 -> 4095 rồi quay lại 0.
+FILE_FLUSH_INTERVAL_SEC = 2.0
+BINARY_FILE_BUFFER_BYTES = 1024 * 1024
 ESP_SEQ_MODULO = 4096
+
+ESP_SUBCARRIER_COUNT = 64
+ASUS_ANTENNA_COUNT = 4
+ASUS_SUBCARRIER_COUNT = 64
+
+# ESP32 144B:
+# seq:uint16, timestamp:uint64, channel:uint16,
+# agc:uint8, fft:uint8, noise:int8, rssi:int8,
+# 64 * (q:int8 + i:int8)
+ESP_HEADER_FMT = "<HQHBBbb"
+ESP_HEADER_SIZE = struct.calcsize(ESP_HEADER_FMT)  # 16
+ESP_RECORD_SIZE = ESP_HEADER_SIZE + ESP_SUBCARRIER_COUNT * 2  # 144
+
+# ASUS 1044B:
+# seq:uint16, timestamp:uint64, channel:uint16,
+# agc0..3:uint8, rssi0..3:int8,
+# 4 antenna * 64 subcarrier * 4 bytes packed decimal
+ASUS_HEADER_FMT = "<HQHBBBBbbbb"
+ASUS_HEADER_SIZE = struct.calcsize(ASUS_HEADER_FMT)  # 20
+ASUS_RECORD_SIZE = ASUS_HEADER_SIZE + ASUS_ANTENNA_COUNT * ASUS_SUBCARRIER_COUNT * 4  # 1044
 
 
 class CsiService:
@@ -41,14 +57,12 @@ class CsiService:
 
         self.threads = []
         self.files = {}
-        self.writers = {}
         self.last_flush_at = perf_now()
 
-        # Sau khi adapter map MAC -> alias, các tầng sau vẫn dùng ID cũ.
         self.nexmon_devices = ["asus1", "asus2", "asus3"]
         self.esp_devices = ["esp1", "esp2", "esp3"]
 
-        # Đếm tiến trình seq ESP để action có thể chờ đủ số bước seq.
+        # Đếm tiến trình seq ESP để action có thể chờ đủ packet theo từng ESP.
         # Không yêu cầu seq bắt đầu từ 0. Hỗ trợ seq quay vòng 0..4095.
         self._esp_seq_last: dict[str, int | None] = {
             device_id: None for device_id in self.esp_devices
@@ -58,21 +72,18 @@ class CsiService:
         }
         self._esp_seq_lock = threading.Lock()
 
+    # ============================================================
+    # START / STOP
+    # ============================================================
     def start_csi_collection(self):
         """
-        Hàm được recording_service.py gọi khi bắt đầu session.
-
-        Nhiệm vụ:
-        1. Tạm khóa việc đưa CSI mới vào queue.
+        Bắt đầu thu CSI cho session:
+        1. Khóa không cho CSI mới vào queue trong lúc chuẩn bị.
         2. Xóa queue cũ.
         3. Reset bộ đếm seq ESP.
-        4. Mở file CSV.
-        5. Start thread writer lấy packet từ queue ghi file.
-        6. Mở khóa recording_enabled để packet mới bắt đầu vào queue.
-
-        Lưu ý:
-        - Nexmon TCP client do ethernet_manager giữ sẵn sau khi Web bấm configure_tcp.
-        - ESP TCP client do uart_manager giữ sẵn sau khi Web bấm Refresh/Kết nối COM.
+        4. Mở 6 file .bin.
+        5. Start writer threads.
+        6. Mở recording_enabled để CSI mới bắt đầu vào queue.
         """
         if self.running:
             print("CSI service already running.")
@@ -80,26 +91,52 @@ class CsiService:
 
         self.running = True
 
-        # Chặn packet mới vào queue trong lúc chuẩn bị session.
-        ethernet_manager.set_recording_enabled(False)
-        uart_manager.set_recording_enabled(False)
-
-        # Xóa dữ liệu tồn từ trước session nếu có.
+        self._set_recording_enabled(False)
         ethernet_manager.clear_csi_queue()
         uart_manager.clear_csi_queue()
         self._reset_esp_seq_progress()
 
-        self._open_csv_files()
+        self._open_binary_files()
         self._start_threads()
 
-        # Sau khi writer/file đã sẵn sàng, mới cho packet mới vào queue.
-        ethernet_manager.set_recording_enabled(True)
-        uart_manager.set_recording_enabled(True)
+        self._set_recording_enabled(True)
+        print("CSI binary collection started.")
 
-        print("CSI collection started.")
+    def stop_csi_collection(self):
+        """
+        Dừng CSI collection:
+        1. Khóa CSI mới không vào queue.
+        2. self.running=False để writer chuẩn bị thoát.
+        3. Writer vẫn drain hết packet đã có trong queue.
+        4. Flush + close file .bin.
+        """
+        self._set_recording_enabled(False)
+        self.running = False
+
+        for thread in self.threads:
+            if thread.is_alive():
+                thread.join(timeout=5)
+
+        self.threads.clear()
+        self._flush_binary_files(force=True)
+
+        for f in self.files.values():
+            try:
+                f.close()
+            except Exception:
+                pass
+
+        self.files.clear()
+        print("CSI binary collection stopped.")
+
+    def _set_recording_enabled(self, enabled: bool):
+        for manager in (ethernet_manager, uart_manager):
+            setter = getattr(manager, "set_recording_enabled", None)
+            if callable(setter):
+                setter(enabled)
 
     # ============================================================
-    # ESP seq progress
+    # ESP SEQ PROGRESS
     # ============================================================
     def _reset_esp_seq_progress(self):
         with self._esp_seq_lock:
@@ -108,16 +145,14 @@ class CsiService:
                 self._esp_seq_progress[device_id] = 0
 
     def get_esp_seq_progress_total(self) -> int:
-        """
-        Trả tổng số bước seq của 3 ESP. Giữ lại để tương thích code cũ.
-        """
+        """Giữ lại để tương thích code cũ: tổng bước seq của cả 3 ESP."""
         with self._esp_seq_lock:
             return sum(self._esp_seq_progress.values())
 
     def get_esp_seq_progress_snapshot(self) -> dict[str, int]:
         """
         Trả tiến trình seq riêng từng ESP.
-        Dùng khi muốn cả esp1, esp2, esp3 đều phải đủ packet_target.
+        Dùng cho điều kiện: cả esp1, esp2, esp3 đều phải tăng >= 1000 bước.
         """
         with self._esp_seq_lock:
             return dict(self._esp_seq_progress)
@@ -127,124 +162,39 @@ class CsiService:
             return
 
         try:
-            seq = int(seq_value)
+            seq = int(seq_value) % ESP_SEQ_MODULO
         except (TypeError, ValueError):
             return
 
-        seq %= ESP_SEQ_MODULO
-
         with self._esp_seq_lock:
             last = self._esp_seq_last.get(device_id)
-
             if last is None:
                 self._esp_seq_last[device_id] = seq
                 return
 
             # Hỗ trợ seq chạy 0..4095 rồi quay về 0.
-            # Ví dụ:
-            # 20 -> 25      delta = 5
-            # 4095 -> 0     delta = 1
-            # 4095 -> 2     delta = 3
-            # 4092 -> 0     delta = 4
-            # 100 -> 100    delta = 0
+            # 4095 -> 0 = 1; 4095 -> 2 = 3; 4092 -> 0 = 4.
             delta = (seq - last) % ESP_SEQ_MODULO
-
             if delta > 0:
                 self._esp_seq_progress[device_id] += delta
                 self._esp_seq_last[device_id] = seq
 
     # ============================================================
-    # CSV open/header
+    # OPEN FILES / THREADS
     # ============================================================
-    def _open_csv_files(self):
-        """Mở CSV cho 6 thiết bị cố định."""
+    def _open_binary_files(self):
         for device_id in self.nexmon_devices:
-            self._open_one_csv(device_id)
+            self._open_one_binary(device_id)
 
         for device_id in self.esp_devices:
-            self._open_one_csv(device_id)
+            self._open_one_binary(device_id)
 
-    def _csv_header_for_device(self, device_id: str):    # Trả header riêng cho ESP và ASUS. Nếu không match mapping thì trả lại device_id đã strip để dễ debug.
-        """
-        Header riêng cho ESP và ASUS.
-
-        ESP:
-        device_id,seq,timestamp,rssi,channel,agc_gain,fft_gain,noise_floor,
-        csi_Q_0,csi_I_0,csi_Q_1,csi_I_1,...,csi_Q_63,csi_I_63
-
-        ASUS/Nexmon:
-        device_id,seq,timestamp,bw,agc,rssi,
-        csi0_Q_0,csi0_I_0,...,csi0_Q_63,csi0_I_63,
-        csi1_Q_0,csi1_I_0,...,
-        csi2_Q_0,csi2_I_0,...,
-        csi3_Q_0,csi3_I_0,...
-
-        Lưu ý:
-        - Tên antenna trong CSV bắt đầu từ 0: csi0, csi1, csi2, csi3.
-        - Tên subcarrier trong CSV bắt đầu từ 0.
-        - JSON ASUS có key c0,c1,c2,c3; khi ghi CSV map c0 -> csi0, c1 -> csi1...
-        """
-        if device_id in self.esp_devices:
-            csi_cols = []
-            for idx in range(64):
-                csi_cols.extend([f"csi_Q_{idx}", f"csi_I_{idx}"])
-
-            return [
-                "device_id",
-                "seq",
-                "timestamp",
-                "rssi",
-                "channel",
-                "agc_gain",
-                "fft_gain",
-                "noise_floor",
-                *csi_cols,
-            ]
-
-        if device_id in self.nexmon_devices:
-            csi_cols = []
-            for ant in range(4):
-                for idx in range(64):
-                    csi_cols.extend([f"csi{ant}_Q_{idx}", f"csi{ant}_I_{idx}"])
-
-            return [
-                "device_id",
-                "seq",
-                "timestamp",
-                "bw",
-                "agc",
-                "rssi",
-                *csi_cols,
-            ]
-
-        return ["raw"]
-
-    def _open_one_csv(self, device_id: str):
-        """Tạo file raw_<device_id>.csv."""
-        file_path = self.session_dir / f"raw_{device_id}.csv"
-
-        # Buffer lớn giúp giảm số lần ghi xuống ổ đĩa khi CSI tốc độ cao.
-        f = open(
-            file_path,
-            "w",
-            newline="",
-            encoding="utf-8",
-            buffering=CSV_FILE_BUFFER_BYTES,
-        )
-        writer = csv.writer(f)
-        writer.writerow(self._csv_header_for_device(device_id))
-
+    def _open_one_binary(self, device_id: str):
+        file_path = self.session_dir / f"raw_{device_id}.bin"
+        f = open(file_path, "wb", buffering=BINARY_FILE_BUFFER_BYTES)
         self.files[device_id] = f
-        self.writers[device_id] = writer
 
-    # ============================================================
-    # Threads / writer loops
-    # ============================================================
     def _start_threads(self):
-        """
-        Start các thread writer.
-        TCP receiver chạy trong ethernet_manager/uart_manager, không tạo ở đây nữa.
-        """
         self._start_thread(target=self._write_nexmon_loop, name="nexmon-writer")
         self._start_thread(target=self._write_esp_loop, name="esp-writer")
 
@@ -253,58 +203,110 @@ class CsiService:
         thread.start()
         self.threads.append(thread)
 
+    # ============================================================
+    # WRITE LOOPS
+    # ============================================================
     def _write_nexmon_loop(self):
-        """Lấy packet từ ethernet_manager.csi_queue và ghi file raw_asus*.csv."""
         self._write_queue_loop(manager=ethernet_manager, source="nexmon")
 
     def _write_esp_loop(self):
-        """Lấy packet từ uart_manager.csi_queue và ghi file raw_esp*.csv."""
         self._write_queue_loop(manager=uart_manager, source="esp")
 
     def _write_queue_loop(self, manager, source: str):
         """
-        Ghi theo batch để giảm overhead khi tốc độ packet cao.
-        Khi stop session, recording_enabled đã tắt nên không có packet mới vào queue;
-        loop vẫn drain hết packet còn lại trước khi thoát để tránh mất đoạn cuối.
+        Writer dừng sau khi self.running=False và queue đã hết.
+        Nhờ vậy khi STOP, packet đã vào queue vẫn được ghi nốt trước khi close file.
         """
         while self.running or not manager.csi_queue.empty():
             timeout = 0.1 if self.running else 0
             packet = manager.get_packet(timeout=timeout)
 
             if packet is None:
-                self._flush_csv_files(force=False)
+                self._flush_binary_files(force=False)
                 if not self.running:
                     break
                 continue
 
             self._write_packet(packet, source=source)
 
-            # Drain nhanh các packet đang có sẵn trong queue.
             for _ in range(CSI_WRITE_BATCH_SIZE - 1):
                 packet = manager.get_packet(timeout=0)
                 if packet is None:
                     break
                 self._write_packet(packet, source=source)
 
-            self._flush_csv_files(force=False)
+            self._flush_binary_files(force=False)
+
+    def _write_packet(self, packet: dict, source: str):
+        device_id = packet.get("device_id")
+        if not device_id:
+            return
+
+        device_id = str(device_id).strip()
+        packet["device_id"] = device_id
+
+        if device_id not in self.files:
+            return
+        
+        # print(f"[CSI-SERVICE] Writing packet for device: {device_id}")
+
+        if source == "esp" or device_id in self.esp_devices:
+            record = self._pack_esp_record(packet)
+            self.files[device_id].write(record)
+            self._update_esp_seq_progress(device_id, packet.get("seq"))
+            self._update_rate(uart_manager, device_id, packet.get("timestamp", packet.get("esp_timestamp_us")))
+            return
+
+        if source == "nexmon" or device_id in self.nexmon_devices:
+            record = self._pack_asus_record(packet)
+            self.files[device_id].write(record)
+            self._update_rate(ethernet_manager, device_id, packet.get("timestamp"))
+            return
+
+    def _update_rate(self, manager, device_id: str, timestamp_us):
+        updater = getattr(manager, "update_packet_stat", None)
+        if not callable(updater):
+            return
+
+        try:
+            updater(device_id, timestamp_us)
+        except TypeError:
+            # Tương thích manager cũ chỉ nhận update_packet_stat(device_id).
+            updater(device_id)
 
     # ============================================================
-    # Data normalization helpers
+    # PACK HELPERS
     # ============================================================
-    def _list_cell_space(self, value) -> str:
+    def _to_int(self, value, default: int = 0) -> int:
+        try:
+            if value is None:
+                return default
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _u8(self, value) -> int:
+        return max(0, min(255, self._to_int(value)))
+
+    def _i8(self, value) -> int:
+        return max(-128, min(127, self._to_int(value)))
+
+    def _u16(self, value) -> int:
+        return self._to_int(value) & 0xFFFF
+
+    def _u64(self, value) -> int:
+        return self._to_int(value) & 0xFFFFFFFFFFFFFFFF
+
+    def _u32_raw(self, value) -> int:
         """
-        List trong một ô CSV, cách nhau bằng khoảng trắng để xem Excel dễ hơn.
-        Ví dụ [0,0,0,0] -> "0 0 0 0".
+        Lưu đúng 4 byte của số thập phân CSI ASUS.
+        Nếu value âm thì vẫn lưu dạng two's complement 32-bit bằng & 0xFFFFFFFF.
         """
-        if value is None:
-            return ""
-        if isinstance(value, (list, tuple)):
-            return " ".join(str(x) for x in value)
-        return str(value)
+        return self._to_int(value) & 0xFFFFFFFF
 
     def _normalize_csi_pairs(self, csi, pair_count: int = 64):
         """
-        Chuẩn hóa CSI về list các cặp [Q, I].
+        Chuẩn hóa ESP CSI về list các cặp [Q, I].
         Hỗ trợ:
         - [[q0,i0], [q1,i1], ...]
         - [q0, i0, q1, i1, ...]
@@ -326,107 +328,129 @@ class CsiService:
                 pairs.append([csi[i], csi[i + 1]])
         return pairs
 
-    def _flatten_qi_columns(self, pairs, pair_count: int = 64): # hàm này đảm bảo rằng dù cặp Q/I có đủ hay không thì số cột vẫn luôn cố định, thiếu cặp nào thì điền rỗng. Ví dụ nếu chỉ có 3 cặp thì vẫn trả về list 128 phần tử, trong đó 6 phần đầu là Q0,I0,Q1,I1,Q2,I2 rồi đến hết là "".
-        """
-        Đổi list [[Q,I],...] thành list [Q0,I0,Q1,I1,...].
-        Nếu thiếu subcarrier thì ghi rỗng để số cột luôn cố định.
-        """
-        cells = []
-        for idx in range(pair_count):
-            if idx < len(pairs) and isinstance(pairs[idx], (list, tuple)) and len(pairs[idx]) >= 2:
-                cells.extend([pairs[idx][0], pairs[idx][1]])
-            else:
-                cells.extend(["", ""])
-        return cells
-
     # ============================================================
-    # Packet writing
+    # ESP32 BINARY: 144B
     # ============================================================
-    def _write_packet(self, packet: dict, source: str):  
-        """Ghi 1 packet vào file tương ứng theo device_id."""
-        device_id = packet.get("device_id")
-        if not device_id:
-            return
-
-        device_id = str(device_id).strip()
-        packet["device_id"] = device_id
-
-        if device_id not in self.writers:
-            return
-
-        if source == "esp" or device_id in self.esp_devices:
-            self._write_esp_packet(packet)
-            self._update_esp_seq_progress(device_id, packet.get("seq"))
-            uart_manager.update_packet_stat(
-                device_id,
-                packet.get("timestamp", packet.get("esp_timestamp_us")),
-            )
-            return
-
-        if source == "nexmon" or device_id in self.nexmon_devices:
-            self._write_asus_packet(packet)
-            ethernet_manager.update_packet_stat(device_id, packet.get("timestamp"))
-            return
- 
-    def _write_esp_packet(self, packet: dict): # CSV ESP columns:
-        """
-        CSV ESP columns:
-        device_id,seq,timestamp,rssi,channel,agc_gain,fft_gain,noise_floor,
-        csi_Q_0,csi_I_0,...,csi_Q_63,csi_I_63
-        """
-        device_id = packet.get("device_id")
+    def _pack_esp_record(self, packet: dict) -> bytes:
         radio = packet.get("radio") or {}
+
+        seq = self._u16(packet.get("seq"))
+        timestamp = self._u64(packet.get("timestamp", packet.get("esp_timestamp_us")))
+        channel = self._u16(radio.get("channel", packet.get("channel", 0)))
+        agc_gain = self._u8(radio.get("agc_gain", packet.get("agc_gain", 0)))
+        fft_gain = self._u8(radio.get("fft_gain", packet.get("fft_gain", 0)))
+        noise = self._i8(radio.get("noise_floor", packet.get("noise", packet.get("noise_floor", 0))))
+        rssi = self._i8(radio.get("rssi", packet.get("rssi", 0)))
+
+        header = struct.pack(
+            ESP_HEADER_FMT,
+            seq,
+            timestamp,
+            channel,
+            agc_gain,
+            fft_gain,
+            noise,
+            rssi,
+        )
+
         csi = packet.get("csi", packet.get("csi_data"))
-        csi_pairs = self._normalize_csi_pairs(csi, pair_count=64)
-        csi_cells = self._flatten_qi_columns(csi_pairs, pair_count=64)
+        pairs = self._normalize_csi_pairs(csi, pair_count=ESP_SUBCARRIER_COUNT)
 
-        self.writers[device_id].writerow([
-            device_id,
-            packet.get("seq"),
-            packet.get("timestamp", packet.get("esp_timestamp_us")),
-            radio.get("rssi"),
-            radio.get("channel"),
-            radio.get("agc_gain"),
-            radio.get("fft_gain"),
-            radio.get("noise_floor"),
-            *csi_cells,
-        ])
+        payload = bytearray()
+        for idx in range(ESP_SUBCARRIER_COUNT):
+            if idx < len(pairs):
+                q, i = pairs[idx][0], pairs[idx][1]
+                payload.extend(struct.pack("<bb", self._i8(q), self._i8(i)))
+            else:
+                payload.extend(b"\x00\x00")
 
-    def _write_asus_packet(self, packet: dict): # CSV ASUS columns:
+        record = header + bytes(payload)
+        if len(record) != ESP_RECORD_SIZE:
+            raise RuntimeError(f"ESP record size sai: {len(record)} != {ESP_RECORD_SIZE}")
+        return record
+
+    # ============================================================
+    # ASUS BINARY: 1044B
+    # ============================================================
+    def _pack_asus_record(self, packet: dict) -> bytes:
         """
-        CSV ASUS columns:
-        device_id,seq,timestamp,bw,agc,rssi,
-        csi0_Q_0,csi0_I_0,...,csi3_Q_63,csi3_I_63
+        JSON ASUS mới:
+        {
+          "seq": 1,
+          "timestamp": 1716280000123456,
+          "bw": 20,
+          "ch": 157,
+          "agc": [0,0,0,0],
+          "rssi": [2,3,4,5],
+          "csi": {
+            "c0": [123, 556, ...],  # 64 số thập phân, mỗi số là 4 byte CSI Q/I đã pack sẵn
+            "c1": [...],
+            "c2": [...],
+            "c3": [...]
+          }
+        }
 
-        JSON ASUS vẫn dùng key c0,c1,c2,c3. Khi ghi CSV:
-        c0 -> csi0, c1 -> csi1, c2 -> csi2, c3 -> csi3.
+        Khi ghi binary: mỗi số decimal trong csi.c0..c3 được pack trực tiếp thành uint32 little-endian.
         """
-        device_id = packet.get("device_id")
+        seq = self._u16(packet.get("seq"))
+        timestamp = self._u64(packet.get("timestamp"))
+        # channel = self._u16(packet.get("ch", packet.get("channel", packet.get("bw", 0))))
+        channel = self._u16(packet.get("ch", packet.get("channel", 0)))
+
+        agc = packet.get("agc", packet.get("agc_gain", []))
+        rssi = packet.get("rssi", [])
+        if not isinstance(agc, (list, tuple)):
+            agc = []
+        if not isinstance(rssi, (list, tuple)):
+            rssi = []
+
+        agc_values = [self._u8(agc[i] if i < len(agc) else 0) for i in range(4)]
+        rssi_values = [self._i8(rssi[i] if i < len(rssi) else 0) for i in range(4)]
+
+        header = struct.pack(
+            ASUS_HEADER_FMT,
+            seq,
+            timestamp,
+            channel,
+            agc_values[0],
+            agc_values[1],
+            agc_values[2],
+            agc_values[3],
+            rssi_values[0],
+            rssi_values[1],
+            rssi_values[2],
+            rssi_values[3],
+        )
+
         csi = packet.get("csi") or {}
-        csi_cells = []
+        payload = bytearray()
 
-        for ant_index in range(4):
-            pairs = csi.get(f"c{ant_index}") or []
-            pairs = self._normalize_csi_pairs(pairs, pair_count=64)
-            csi_cells.extend(self._flatten_qi_columns(pairs, pair_count=64))
+        for ant in range(ASUS_ANTENNA_COUNT):
+            values = csi.get(f"c{ant}") or []
+            if not isinstance(values, list):
+                values = []
 
-        self.writers[device_id].writerow([
-            device_id,
-            packet.get("seq"),
-            packet.get("timestamp"),
-            packet.get("bw"),
-            self._list_cell_space(packet.get("agc")),
-            self._list_cell_space(packet.get("rssi")),
-            *csi_cells,
-        ])
+            for sub in range(ASUS_SUBCARRIER_COUNT):
+                value = values[sub] if sub < len(values) else 0
+
+                # Format mới: value là số thập phân đại diện cho đúng 4 byte Q/I.
+                # Nếu lỡ nhận format cũ [[q,i], ...], vẫn pack được thành int16 q + int16 i.
+                if isinstance(value, (list, tuple)) and len(value) >= 2:
+                    payload.extend(struct.pack("<hh", self._to_int(value[0]), self._to_int(value[1])))
+                else:
+                    payload.extend(struct.pack("<I", self._u32_raw(value)))
+
+        record = header + bytes(payload)
+        if len(record) != ASUS_RECORD_SIZE:
+            raise RuntimeError(f"ASUS record size sai: {len(record)} != {ASUS_RECORD_SIZE}")
+        return record
 
     # ============================================================
-    # Flush/stop
+    # FLUSH
     # ============================================================
-    def _flush_csv_files(self, force: bool = False):
+    def _flush_binary_files(self, force: bool = False):
         now = perf_now()
-
-        if not force and now - self.last_flush_at < CSV_FLUSH_INTERVAL_SEC:
+        if not force and now - self.last_flush_at < FILE_FLUSH_INTERVAL_SEC:
             return
 
         for f in self.files.values():
@@ -436,36 +460,3 @@ class CsiService:
                 pass
 
         self.last_flush_at = now
-
-    def stop_csi_collection(self):
-        """
-        Dừng ghi CSI của session hiện tại:
-        1. Tắt recording_enabled để packet mới không vào queue nữa.
-        2. Cho writer thread drain hết queue còn lại.
-        3. Flush và đóng CSV.
-
-        Không đóng TCP Nexmon/ESP ở đây; TCP được manager giữ sẵn giống nhau.
-        """
-        ethernet_manager.set_recording_enabled(False)
-        uart_manager.set_recording_enabled(False)
-
-        self.running = False
-
-        for thread in self.threads:
-            if thread.is_alive():
-                thread.join(timeout=5)
-
-        self.threads.clear()
-
-        self._flush_csv_files(force=True)
-
-        for f in self.files.values():
-            try:
-                f.close()
-            except Exception:
-                pass
-
-        self.files.clear()
-        self.writers.clear()
-
-        print("CSI collection stopped.")

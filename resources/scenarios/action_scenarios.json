@@ -1,0 +1,95 @@
+
+[
+  {
+    "scenario": "sitdown_standup",
+    "actions": [
+      {
+        "order": 1,
+        "voice_file": "ngoi_xuong.wav",
+        "action_name": "sitdown",
+        "duration_sec": 5
+      },
+      {
+        "order": 2,
+        "voice_file": "dung_len.wav",
+        "action_name": "standup",
+        "duration_sec": 5
+      }
+    ]
+  },
+  {
+    "scenario": "pickup_fall_liestill",
+    "actions": [
+      {
+        "order": 1,
+        "voice_file": "cui_nhat.wav",
+        "action_name": "pickup",
+        "duration_sec": 5
+      },
+      {
+        "order": 2,
+        "voice_file": "nga.wav",
+        "action_name": "fall",
+        "duration_sec": 5
+      },
+      {
+        "order": 3,
+        "voice_file": "nam_yen.wav",
+        "action_name": "liestill",
+        "duration_sec": 5
+      },
+      {
+        "order": 4,
+        "voice_file": "chuan_bi_lai.wav",
+        "action_name": "prepareagain",
+        "duration_sec": 5
+      }
+    ]
+  },
+  {
+    "scenario": "run",
+    "actions": [
+      {
+        "order": 1,
+        "voice_file": "chay.wav",
+        "action_name": "run",
+        "duration_sec": 5
+      },
+      {
+        "order": 2,
+        "voice_file": "chuan_bi_lai.wav",
+        "action_name": "prepareagain",
+        "duration_sec": 10
+      }
+    ]
+  },
+  {
+    "scenario": "walk",
+    "actions": [
+      {
+        "order": 1,
+        "voice_file": "di_bo.wav",
+        "action_name": "walk",
+        "duration_sec": 5
+      },
+      {
+        "order": 2,
+        "voice_file": "chuan_bi_lai.wav",
+        "action_name": "prepareagain",
+        "duration_sec": 10
+      }
+    ]
+  },
+  {
+    "scenario": "emptyroom",
+    "actions": [
+      {
+        "order": 1,
+        "voice_file": "bat_dau.wav",
+        "action_name": "emptyroom",
+        "duration_sec": 5
+      }
+    ]
+  }
+]
+
