@@ -82,6 +82,31 @@ class UartManager:
             "last_error": None,
         }
 
+    def _calculate_packet_rate(self, window) -> int:
+        """
+        Tính tốc độ gói theo Hz từ timestamp trong packet.
+
+        Không dùng trực tiếp len(window), vì với dữ liệu 200 Hz:
+        t=0, 5ms, ..., 1000ms có thể thành 201 điểm timestamp
+        nếu lấy cả hai biên của cửa sổ 1 giây.
+
+        Rate đúng được tính theo số khoảng giữa các packet:
+        rate = (N - 1) / duration_sec
+        """
+        n = len(window)
+        if n <= 1:
+            return n
+
+        try:
+            duration_us = int(window[-1]) - int(window[0])
+        except Exception:
+            return n
+
+        if duration_us <= 0:
+            return n
+
+        return max(0, int(round((n - 1) * 1_000_000 / duration_us)))
+
     def _prune_rate_window(self, device_id: str, current_timestamp_us: int | None = None):
         """
         Giữ lại các timestamp nằm trong cửa sổ 1 giây gần nhất của chính dữ liệu CSI.
@@ -93,10 +118,12 @@ class UartManager:
         window = self._rate_windows[device_id]
         cutoff = int(current_timestamp_us) - RATE_WINDOW_US
 
-        while window and window[0] < cutoff:
+        # Dùng <= để cửa sổ là (t-1s, t], tránh trường hợp 200 Hz bị đếm 201 gói
+        # khi packet nằm đúng tại hai biên 0.000s và 1.000s.
+        while window and window[0] <= cutoff:
             window.popleft()
 
-        self.devices[device_id]["packet_rate"] = len(window)
+        self.devices[device_id]["packet_rate"] = self._calculate_packet_rate(window)
 
     def refresh_all_rates(self):
         """
