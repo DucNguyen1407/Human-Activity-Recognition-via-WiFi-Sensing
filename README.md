@@ -31,28 +31,9 @@ The system consists of two main roles:
 
 ## Hardware Architecture
 
-```
-┌─────────────┐     UART / RS-485     ┌──────────────────────────────┐
-│   ESP32 #1  │ ─────────────────────►│                              │
-├─────────────┤                        │   TTL–RS-485 Module (x3)     │
-│   ESP32 #2  │ ─────────────────────►│        │                     │
-├─────────────┤                        │   RS-485–USB Module (x3)     │
-│   ESP32 #3  │ ─────────────────────►│        │                     │
-└─────────────┘                        │   COM ports (USB) ×3         │
-                                       └────────────┬─────────────────┘
-                                                    │
-                                           ┌────────▼────────┐
-                                           │    Laptop 1     │
-                                           │  (Collection)   │
-                                           │  esp_real.py    │
-                                           └────────┬────────┘
-                                                    │  TCP :9200 (JSON Lines)
-                                           ┌────────▼────────┐
-                                           │    Laptop 2     │
-                                           │  (Management)   │
-                                           │  FastAPI Server │
-                                           └─────────────────┘
-```
+![Hardware Architecture](docs/images/hardware_architecture.png)
+
+> *Place your hardware architecture diagram at `docs/images/hardware_architecture.png`*
 
 **Hardware notes:**
 - **ESP32**: WiFi CSI sensor node, transmits binary frames over UART
@@ -64,24 +45,9 @@ The system consists of two main roles:
 
 ## Software Architecture
 
-```
-Collection side (esp_real.py)                  Management side (Laptop 2)
-──────────────────────────────                 ────────────────────────────────────────
-                                               ┌────────────────────────────────────────┐
- [COM3]  SerialCollector(esp1)                 │   EspTcpClient          UartManager    │
- [COM4]  SerialCollector(esp2)   TCP :9200     │   ─────────────         ────────────── │
- [COM5]  SerialCollector(esp3) ──────────────► │   read_packet()  ──►   csi_queue       │
-          │                                    │   (JSON Lines)         (Queue 50,000)  │
-          │ asyncio read UART                  │                        put_packet()    │
-          │ parse binary → dict                │                        get_packet()    │
-          │                                    └─────────────────────────────┬──────────┘
- TCPServerApp                                                                │
- ──────────────────────                                                      ▼
- asyncio.start_server(:9200) ◄── control commands                      CsiService
- handle_client()                                                        writes CSV per session
- send_management_packet()
- broadcast_realtime(:9201) ──────────────────────────────► Realtime Viewer
-```
+![Software Architecture](docs/images/software_architecture.png)
+
+> *Place your software architecture diagram at `docs/images/software_architecture.png`*
 
 ---
 
@@ -143,38 +109,9 @@ The central file of the data collection layer, running on **Laptop 1 (Collection
 
 #### Processing pipeline
 
-```
-COM port (RS-485 / USB)
-    │
-    ▼  serial_asyncio.open_serial_connection()
-reader.read(4096)  →  buf.extend(chunk)
-    │
-    ▼  find_frame(buf)           ← locate magic bytes 0xAA 0x55
-frame (155 bytes)
-    │
-    ▼  parse_packet(frame, device_id)
-    │    1. Validate size == 155
-    │    2. Check magic bytes == 0xAA 0x55
-    │    3. Check length field == 155
-    │    4. XOR checksum validation
-    │    5. struct.unpack_from() → mac, seq, ts_us, rssi, ch, agc, fft, nf
-    │    6. Unpack 128 × int8 CSI raw → 64 [Q, I] pairs
-    ▼
-{
-    "type":        "csi_data",
-    "device_id":   "AA:BB:CC:DD:EE:FF",   ← real MAC from frame
-    "seq":         12345,
-    "timestamp":   1234567890123,          ← ts_us from ESP32
-    "radio": {
-        "rssi": -60, "channel": 6,
-        "agc_gain": 0, "fft_gain": 0, "noise_floor": -95
-    },
-    "csi": [[Q0,I0], [Q1,I1], ..., [Q63,I63]]   ← 64 pairs
-}
-    │
-    ▼  send_management_packet()  →  TCP :9200  →  Laptop 2
-    ▼  broadcast_realtime()      →  TCP :9201  →  Realtime Viewer
-```
+![Processing Pipeline](docs/images/processing_pipeline.png)
+
+> *Place your processing pipeline diagram at `docs/images/processing_pipeline.png`*
 
 #### TCP Server ports
 
@@ -473,30 +410,9 @@ ESP_MAC_TO_ID = {
 
 ## Data Flow Diagram
 
-```
-ESP32 #1 ──UART──► COM3 ─┐
-ESP32 #2 ──UART──► COM4 ──┤──► SerialCollector (asyncio)
-ESP32 #3 ──UART──► COM5 ─┘         │
-                               parse_packet()
-                          binary 155B → Python dict
-                                    │
-                          TCPServerApp (:9200)
-                          asyncio TCP Server
-                                    │  JSON Lines \n
-                                    ▼
-                         EspTcpClient.read_packet()
-                         map MAC → esp1 / esp2 / esp3
-                                    │
-                         UartManager._client_receive_loop()
-                                    │
-                     put_packet() ──► csi_queue (Queue, 50k max)
-                                    │
-                         CsiService.get_packet()
-                                    │
-                           Write CSV per session
-                                    │
-                      Web UI (FastAPI + WebSocket)
-```
+![Data Flow Diagram](docs/images/data_flow.png)
+
+> *Place your data flow diagram at `docs/images/data_flow.png`*
 
 ---
 
