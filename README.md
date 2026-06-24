@@ -51,14 +51,16 @@ Each ESP32 uses one dedicated TTL–RS-485 + RS-485–USB module pair, resulting
 
 **Module close-up:**
 
-<img width="808" height="484" alt="hardware1" src="https://github.com/user-attachments/assets/3ef2c81a-97ec-44d0-9468-85af9448e226" />
+<img width="630" height="841" alt="image" src="https://github.com/user-attachments/assets/a391a803-e5db-44fa-a339-723b1f7e69f9" />
+
 
 
 
 
 **Full room setup:**
 
-<img width="751" height="532" alt="hardware2" src="https://github.com/user-attachments/assets/3bc866f0-af3a-415e-ab65-5b21987936d9" />
+<img width="1859" height="753" alt="image" src="https://github.com/user-attachments/assets/4f0c3c01-45dd-4e2b-86f5-a984042684f8" />
+
 
 
 
