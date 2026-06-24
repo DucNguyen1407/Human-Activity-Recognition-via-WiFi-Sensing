@@ -30,7 +30,8 @@ A real-time CSI (Channel State Information) data collection system using 3 ESP32
 
 ### Wiring Diagram
 
-<img width="1237" height="953" alt="{8F514837-F5FA-4D86-8F13-A0FCF39B3A38}" src="https://github.com/user-attachments/assets/d9367567-16ae-4001-8479-79ca454220f0" />
+<img <img width="788" height="714" alt="wiring" src="https://github.com/user-attachments/assets/86f5eb23-092d-4bcf-bd7b-d057a9089a29" />
+
 
 
 
