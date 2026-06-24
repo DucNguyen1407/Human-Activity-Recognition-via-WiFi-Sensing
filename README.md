@@ -30,7 +30,7 @@ A real-time CSI (Channel State Information) data collection system using 3 ESP32
 
 ### Wiring Diagram
 
-<img <img width="788" height="714" alt="wiring" src="https://github.com/user-attachments/assets/86f5eb23-092d-4bcf-bd7b-d057a9089a29" />
+<img width="788" height="714" alt="wiring" src="https://github.com/user-attachments/assets/86f5eb23-092d-4bcf-bd7b-d057a9089a29" />
 
 
 
@@ -51,15 +51,14 @@ Each ESP32 uses one dedicated TTL–RS-485 + RS-485–USB module pair, resulting
 
 **Module close-up:**
 
-![Module Close-up](<img width="630" height="841" alt="image" src="https://github.com/user-attachments/assets/1ea31ad1-3005-4aba-bb93-d8b356cdf062" />
-)
+<img width="808" height="484" alt="hardware1" src="https://github.com/user-attachments/assets/3ef2c81a-97ec-44d0-9468-85af9448e226" />
+
 
 
 
 **Full room setup:**
 
-![Room Overview](<img width="1859" height="753" alt="image" src="https://github.com/user-attachments/assets/9704081a-9391-43fb-adef-77d17e7784e3" />
-)
+<img width="751" height="532" alt="hardware2" src="https://github.com/user-attachments/assets/3bc866f0-af3a-415e-ab65-5b21987936d9" />
 
 
 
