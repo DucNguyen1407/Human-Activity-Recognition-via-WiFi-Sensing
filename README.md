@@ -30,7 +30,8 @@ A real-time CSI (Channel State Information) data collection system using 3 ESP32
 
 ### Wiring Diagram
 
-![Wiring Diagram](docs/images/wiring_diagram.png)
+![Wiring Diagram](<img width="788" height="714" alt="wiring" src="https://github.com/user-attachments/assets/aebcd6f1-5dcd-49bd-9d1e-d398518b6672" />
+)
 
 > *Place your wiring diagram at `docs/images/wiring_diagram.png`*
 
@@ -211,4 +212,4 @@ ESP_MAC_TO_ID = {
 
 ## Author
 
-**Duc Nguyen** — Final Year Thesis: *Human Activity Recognition via WiFi CSI Sensing*
+**Duc Nguyen** — Project 1: *Human Activity Recognition via WiFi CSI Sensing*
